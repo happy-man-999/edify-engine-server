@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import solana from './routes/solana.js';
 import stripe from './routes/stripe.js';
 import auth from './routes/auth.js';
+import signupProgress from './routes/signupProgress.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -45,6 +46,7 @@ app.get('/api/hello', (req, res) => {
 app.use('/api/auth', auth);
 app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
+app.use('/api/signup-progress', signupProgress);
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

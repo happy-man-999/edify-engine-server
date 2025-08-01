@@ -2,6 +2,7 @@ import express from 'express';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from '../models/User.js';
+import SignupProgress from '../models/SignupProgress.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -147,10 +148,16 @@ router.post('/signin', async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    // Check signup progress
+    const signupProgress = await SignupProgress.findOne({ userId: user._id });
+    const hasCompletedSignup = signupProgress && signupProgress.isSignupComplete();
+
     res.json({
       message: 'Sign in successful',
       token,
-      user: user.toJSON()
+      user: user.toJSON(),
+      hasCompletedSignup,
+      shouldRedirectToSignup: !hasCompletedSignup
     });
   } catch (error) {
     console.error('Signin error:', error);
@@ -159,15 +166,30 @@ router.post('/signin', async (req, res) => {
 });
 
 // Google OAuth routes
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google', (req, res, next) => {
+  const from = req.query.from;
+  if (from === 'signup') {
+    // Store the signup context in session or pass it through state
+    req.session.signupContext = true;
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
 
 router.get('/google/callback', 
   passport.authenticate('google', { session: false }),
   (req, res) => {
     const token = generateToken(req.user._id);
     
-    // Redirect to frontend with token
-    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/auth-callback?token=${token}`);
+    // Check if this was initiated from signup
+    const fromSignup = req.session?.signupContext || req.query.state === 'signup';
+    
+    if (fromSignup) {
+      // Redirect back to signup with special parameters
+      res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/signup?googleAuthCompleted=true&token=${token}`);
+    } else {
+      // Normal auth flow - redirect to auth callback
+      res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/auth-callback?token=${token}`);
+    }
   }
 );
 

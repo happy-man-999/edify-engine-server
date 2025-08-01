@@ -1,6 +1,8 @@
 import express from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
+import SignupProgress from '../models/SignupProgress.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 dotenv.config();
 
@@ -87,7 +89,7 @@ router.post('/create-checkout-session', async (req, res) => {
         },
       ],
       mode: 'payment',
-      success_url: success_url || `${req.headers.origin}/signup-success`,
+      success_url: success_url || `${req.headers.origin}/signup-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancel_url || `${req.headers.origin}/signup`,
     });
 
@@ -136,6 +138,43 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 
   res.json({ received: true });
+});
+
+// Payment success endpoint
+router.post('/payment-success', authenticateToken, async (req, res) => {
+  try {
+    console.log('POST /payment-success - Called with body:', req.body);
+    const { sessionId, amount } = req.body;
+    
+    // Update signup progress to mark payment as completed
+    const progress = await SignupProgress.findOne({ userId: req.user._id });
+    console.log('POST /payment-success - Found progress:', !!progress);
+    
+    if (progress) {
+      progress.payment = {
+        isCompleted: true,
+        stripeSessionId: sessionId,
+        amount: amount,
+        completedAt: new Date()
+      };
+      progress.isCompleted = true;
+      progress.completedAt = new Date();
+      await progress.save();
+      
+      console.log('Payment completed and signup marked as complete for user:', req.user._id);
+      
+      res.json({ 
+        success: true, 
+        message: 'Payment completed and signup progress updated' 
+      });
+    } else {
+      console.log('POST /payment-success - No signup progress found for user:', req.user._id);
+      res.status(404).json({ error: 'No signup progress found' });
+    }
+  } catch (error) {
+    console.error('Payment success error:', error);
+    res.status(500).json({ error: 'Failed to update payment status' });
+  }
 });
 
 export default router; 
