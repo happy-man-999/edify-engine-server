@@ -38,6 +38,9 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Serve static files from client/dist
+app.use(express.static('../client/dist'));
+
 // Routes
 app.get('/api/hello', (req, res) => {
   res.json({ message: 'Hello from the server!' });
@@ -47,6 +50,15 @@ app.use('/api/auth', auth);
 app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
 app.use('/api/signup-progress', signupProgress);
+
+// Catch-all for React Router paths (must be after API routes)
+app.use((req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile('index.html', { root: '../client/dist' });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
