@@ -7,13 +7,9 @@ const router = express.Router();
 // Get user's signup progress
 router.get('/progress', authenticateToken, async (req, res) => {
   try {
-    console.log('GET /progress - User:', req.user._id);
-    
     let progress = await SignupProgress.findOne({ userId: req.user._id });
-    console.log('GET /progress - Found progress:', !!progress);
     
     if (!progress) {
-      console.log('GET /progress - No progress found, should redirect to signup');
       return res.json({ 
         hasProgress: false, 
         isCompleted: false,
@@ -22,7 +18,6 @@ router.get('/progress', authenticateToken, async (req, res) => {
     }
 
     const isCompleted = progress.isSignupComplete();
-    console.log('GET /progress - Progress found, isCompleted:', isCompleted);
     
     res.json({
       hasProgress: true,
@@ -38,18 +33,13 @@ router.get('/progress', authenticateToken, async (req, res) => {
 
 // Save signup progress for a specific step
 router.post('/progress', authenticateToken, async (req, res) => {
-  try {
-    console.log('POST /progress - User:', req.user._id);
-    console.log('POST /progress - Body:', req.body);
-    
+  try {    
     const { step, data } = req.body;
     
     let progress = await SignupProgress.findOne({ userId: req.user._id });
-    console.log('POST /progress - Existing progress:', !!progress);
     
     if (!progress) {
       progress = new SignupProgress({ userId: req.user._id });
-      console.log('POST /progress - Created new progress document');
     }
 
     // Update based on step
@@ -61,27 +51,22 @@ router.post('/progress', authenticateToken, async (req, res) => {
           email: data.email,
           isGoogleAuth: data.isGoogleAuth || false
         };
-        console.log('POST /progress - Updated account info');
         break;
         
       case 3: // Use Cases
         progress.useCases = data.useCases;
-        console.log('POST /progress - Updated use cases:', data.useCases);
         break;
         
       case 4: // Persistence
         progress.isPersistent = data.isPersistent;
-        console.log('POST /progress - Updated persistence');
         break;
         
       case 5: // Access Method
         progress.accessMethod = data.accessMethod;
-        console.log('POST /progress - Updated access method');
         break;
         
       case 6: // Customization Level
         progress.customizationLevel = data.customizationLevel;
-        console.log('POST /progress - Updated customization level');
         break;
         
       case 7: // Payment
@@ -93,17 +78,14 @@ router.post('/progress', authenticateToken, async (req, res) => {
         };
         progress.isCompleted = true;
         progress.completedAt = new Date();
-        console.log('POST /progress - Updated payment');
         break;
         
       default:
-        console.log('POST /progress - Invalid step:', step);
         return res.status(400).json({ message: 'Invalid step number' });
     }
 
     progress.currentStep = step;
     await progress.save();
-    console.log('POST /progress - Saved progress, current step:', step);
 
     res.json({ 
       success: true, 

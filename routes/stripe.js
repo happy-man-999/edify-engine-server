@@ -126,7 +126,6 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   switch (event.type) {
     case 'payment_intent.succeeded':
       const paymentIntent = event.data.object;
-      console.log('PaymentIntent was successful!', paymentIntent.id);
       // Here you would typically update your database to mark the user as paid
       break;
     case 'payment_intent.payment_failed':
@@ -143,12 +142,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 // Payment success endpoint
 router.post('/payment-success', authenticateToken, async (req, res) => {
   try {
-    console.log('POST /payment-success - Called with body:', req.body);
     const { sessionId, amount } = req.body;
     
     // Update signup progress to mark payment as completed
     const progress = await SignupProgress.findOne({ userId: req.user._id });
-    console.log('POST /payment-success - Found progress:', !!progress);
     
     if (progress) {
       progress.payment = {
@@ -160,8 +157,6 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       progress.isCompleted = true;
       progress.completedAt = new Date();
       await progress.save();
-      
-      console.log('Payment completed and signup marked as complete for user:', req.user._id);
       
       res.json({ 
         success: true, 

@@ -51,13 +51,13 @@ class DigitalOceanService {
       }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-console.log(dropletInfo.droplet.networks.v4);
+    
     const dropletIp = dropletInfo.droplet.networks.v4.find(ethernet => ethernet.type === 'public')?.ip_address;
     return dropletIp;
   }
   async assignSubdomain(dropletId, domain, subdomain) {
     const dropletIp = await this.getDropletPublicNetwork(dropletId);
-    console.log("IP: ", dropletId)
+    
     const response = await axios.post(`https://api.digitalocean.com/v2/domains/${domain}/records`, {
       type: 'A',
       name: subdomain,

@@ -20,7 +20,6 @@ router.post('/transaction', async (req, res) => {
       try {
         const solanaService = new SolanaService();
         const txInfo = await solanaService.getTransactionInfo(signature);
-        console.log('Transaction Info:', txInfo);
       } catch (error) {
         console.error('Error fetching transaction info:', error.message);
         return res.status(500).json({ error: 'Failed to process transaction' });
