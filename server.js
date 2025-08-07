@@ -8,6 +8,7 @@ import solana from './routes/solana.js';
 import stripe from './routes/stripe.js';
 import auth from './routes/auth.js';
 import signupProgress from './routes/signupProgress.js';
+import admin from './routes/admin.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -22,10 +23,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/edifyengi
 
 app.set('trust proxy', true);
 // Middleware
-app.use(cors({
+/*app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
-}));
+}));*/
 app.use(express.json());
 app.use(cookieParser());
 app.use(session({
@@ -51,6 +52,7 @@ app.use('/api/auth', auth);
 app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
 app.use('/api/signup-progress', signupProgress);
+app.use('/api/admin', admin);
 
 // Catch-all for React Router paths (must be after API routes)
 app.use((req, res, next) => {

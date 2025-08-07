@@ -83,6 +83,54 @@ class DigitalOceanService {
 
     return response.data;
   }
+
+  async powerOffDroplet(dropletId) {
+    const response = await axios.post(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
+      type: 'power_off'
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`
+      }
+    });
+
+    return response.data;
+  }
+
+  async rebootDroplet(dropletId) {
+    const response = await axios.post(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
+      type: 'reboot'
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`
+      }
+    });
+
+    return response.data;
+  }
+
+  async deleteDroplet(dropletId) {
+    const response = await axios.delete(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`
+      }
+    });
+
+    return response.data;
+  }
+
+  async getDroplet(dropletId) {
+    const response = await axios.get(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`
+      }
+    });
+
+    return response.data.droplet;
+  }
 }
 
 export default DigitalOceanService;

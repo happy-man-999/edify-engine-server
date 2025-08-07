@@ -33,11 +33,14 @@ class SolanaService {
 
       const memoLog = txInfo.meta.logMessages.find(log => log.startsWith("Program log: Memo"));
       const memo = memoLog?.match(/"(.+?)"/)?.[1]; // Extract the memo string in quotes
+      const userId = memo.split("-")[0];
+      const itemId = memo.split("-")[1];
 
       return {
         sender,
         amount,
-        memo
+        userId,
+        itemId
       };
     } catch (error) {
       throw new Error(`Failed to fetch transaction info: ${error.message}`);
