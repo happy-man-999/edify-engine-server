@@ -1,8 +1,10 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/admin.js';
 import User from '../models/User.js';
+import Settings from '../models/Settings.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
+import LogService from '../services/logService.js';
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
@@ -188,6 +190,18 @@ router.post('/users', async (req, res) => {
 
     await newUser.save();
 
+    // Log user creation
+    try {
+      await LogService.logUserCreated(req.user._id, {
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        role: newUser.role
+      });
+    } catch (logError) {
+      console.error('Error logging user creation:', logError);
+    }
+
     // Return user without password
     const userResponse = newUser.toJSON();
 
@@ -223,14 +237,27 @@ router.put('/users/:userId/role', async (req, res) => {
       });
     }
 
+    const oldUser = await User.findById(userId).select('-password');
+    if (!oldUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
       { role },
       { new: true, runValidators: true }
     ).select('-password');
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Log role change
+    try {
+      await LogService.logUserRoleChanged(req.user._id, {
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      }, oldUser.role, user.role);
+    } catch (logError) {
+      console.error('Error logging role change:', logError);
     }
 
     res.json({ 
@@ -301,14 +328,34 @@ router.put('/users/:userId', async (req, res) => {
       isEmailVerified: Boolean(isEmailVerified)
     };
 
+    const oldUser = await User.findById(userId).select('-password');
+    if (!oldUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
       updates,
       { new: true, runValidators: true }
     ).select('-password');
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Log user update
+    try {
+      const changes = {};
+      if (oldUser.firstName !== user.firstName) changes.firstName = { old: oldUser.firstName, new: user.firstName };
+      if (oldUser.lastName !== user.lastName) changes.lastName = { old: oldUser.lastName, new: user.lastName };
+      if (oldUser.email !== user.email) changes.email = { old: oldUser.email, new: user.email };
+      if (oldUser.role !== user.role) changes.role = { old: oldUser.role, new: user.role };
+      if (oldUser.isEmailVerified !== user.isEmailVerified) changes.isEmailVerified = { old: oldUser.isEmailVerified, new: user.isEmailVerified };
+
+      await LogService.logUserUpdated(req.user._id, {
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      }, changes);
+    } catch (logError) {
+      console.error('Error logging user update:', logError);
     }
 
     res.json({ 
@@ -336,11 +383,25 @@ router.delete('/users/:userId', async (req, res) => {
       });
     }
 
-    const user = await User.findByIdAndDelete(userId);
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    // Log user deletion
+    try {
+      await LogService.logUserDeleted(req.user._id, {
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      });
+    } catch (logError) {
+      console.error('Error logging user deletion:', logError);
+    }
+
+    await User.findByIdAndDelete(userId);
 
     res.json({ 
       message: 'User deleted successfully',
@@ -605,6 +666,247 @@ router.delete('/droplets/:dropletId', async (req, res) => {
     }
     res.status(500).json({ 
       message: 'Failed to delete droplet',
+      error: error.message 
+    });
+  }
+});
+
+// ===== LOGS ROUTES =====
+
+// Get all logs with pagination and filtering
+router.get('/logs', async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      level = 'all',
+      type = 'all',
+      search = '',
+      startDate = '',
+      endDate = ''
+    } = req.query;
+
+    const { logs, total, pages } = await LogService.getLogsPaginated({
+      page,
+      limit,
+      level,
+      type,
+      search,
+      startDate,
+      endDate
+    });
+
+    res.json({
+      logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch logs',
+      error: error.message 
+    });
+  }
+});
+
+// Get log statistics
+router.get('/logs/stats', async (req, res) => {
+  try {
+    const stats = await LogService.getLogStats();
+    res.json({ stats });
+  } catch (error) {
+    console.error('Error fetching log stats:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch log statistics',
+      error: error.message 
+    });
+  }
+});
+
+// Get logs by type
+router.get('/logs/type/:type', async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { limit = 50 } = req.query;
+    
+    const logs = await LogService.getLogsByType(type, parseInt(limit));
+    res.json({ logs });
+  } catch (error) {
+    console.error('Error fetching logs by type:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch logs by type',
+      error: error.message 
+    });
+  }
+});
+
+// Get recent errors
+router.get('/logs/errors', async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const logs = await LogService.getRecentErrors(parseInt(limit));
+    res.json({ logs });
+  } catch (error) {
+    console.error('Error fetching recent errors:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch recent errors',
+      error: error.message 
+    });
+  }
+});
+
+// Export logs
+router.get('/logs/export', async (req, res) => {
+  try {
+    const { format = 'json', startDate, endDate, level, type } = req.query;
+    
+    const filters = {
+      level: level || 'all',
+      type: type || 'all',
+      startDate,
+      endDate
+    };
+
+    const logs = await LogService.getLogs(filters);
+    
+    if (format === 'csv') {
+      // Convert to CSV format
+      const csvHeaders = 'Timestamp,Level,Type,Message,Status,User,Details\n';
+      const csvRows = logs.map(log => {
+        const user = log.userId ? `${log.userId.firstName} ${log.userId.lastName}` : 'N/A';
+        const details = JSON.stringify(log.details).replace(/"/g, '""');
+        return `"${log.timestamp}","${log.level}","${log.type}","${log.message}","${log.status}","${user}","${details}"`;
+      }).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=logs.csv');
+      res.send(csvHeaders + csvRows);
+    } else {
+      // Return JSON
+      res.json({ logs });
+    }
+  } catch (error) {
+    console.error('Error exporting logs:', error);
+    res.status(500).json({ 
+      message: 'Failed to export logs',
+      error: error.message 
+    });
+  }
+});
+
+// ===== SETTINGS ROUTES =====
+
+// Get current settings
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    res.json({ settings });
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch settings',
+      error: error.message 
+    });
+  }
+});
+
+// Update settings
+router.put('/settings', async (req, res) => {
+  try {
+    const { defaultSnapshotId, defaultDnsDomain, stripeMode, solanaMode, isTestMode } = req.body;
+
+    // Validate required fields
+    if (defaultSnapshotId === undefined || defaultDnsDomain === undefined) {
+      return res.status(400).json({ 
+        message: 'Default snapshot ID and DNS domain are required' 
+      });
+    }
+
+    // Validate snapshot ID is a number
+    if (isNaN(defaultSnapshotId) || defaultSnapshotId <= 0) {
+      return res.status(400).json({ 
+        message: 'Default snapshot ID must be a positive number' 
+      });
+    }
+
+    // Validate DNS domain format
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
+    if (!domainRegex.test(defaultDnsDomain)) {
+      return res.status(400).json({ 
+        message: 'Invalid DNS domain format' 
+      });
+    }
+
+    // Validate stripe mode
+    if (stripeMode && !['test', 'live'].includes(stripeMode)) {
+      return res.status(400).json({ 
+        message: 'Invalid Stripe mode. Must be "test" or "live"' 
+      });
+    }
+
+    // Validate Solana mode
+    if (solanaMode && !['devnet', 'mainnet'].includes(solanaMode)) {
+      return res.status(400).json({ 
+        message: 'Invalid Solana mode. Must be "devnet" or "mainnet"' 
+      });
+    }
+
+    // Get current settings
+    const currentSettings = await Settings.getSettings();
+    
+    // Build update object
+    const updates = {
+      defaultSnapshotId: parseInt(defaultSnapshotId),
+      defaultDnsDomain,
+      stripeMode: stripeMode || 'live',
+      solanaMode: solanaMode || 'mainnet',
+      isTestMode: Boolean(isTestMode)
+    };
+
+    // Update settings
+    const updatedSettings = await Settings.findByIdAndUpdate(
+      currentSettings._id,
+      updates,
+      { new: true, runValidators: true }
+    );
+
+    // Log settings update
+    try {
+      const changes = {};
+      if (currentSettings.defaultSnapshotId !== updatedSettings.defaultSnapshotId) {
+        changes.defaultSnapshotId = { old: currentSettings.defaultSnapshotId, new: updatedSettings.defaultSnapshotId };
+      }
+      if (currentSettings.defaultDnsDomain !== updatedSettings.defaultDnsDomain) {
+        changes.defaultDnsDomain = { old: currentSettings.defaultDnsDomain, new: updatedSettings.defaultDnsDomain };
+      }
+      if (currentSettings.stripeMode !== updatedSettings.stripeMode) {
+        changes.stripeMode = { old: currentSettings.stripeMode, new: updatedSettings.stripeMode };
+      }
+      if (currentSettings.solanaMode !== updatedSettings.solanaMode) {
+        changes.solanaMode = { old: currentSettings.solanaMode, new: updatedSettings.solanaMode };
+      }
+      if (currentSettings.isTestMode !== updatedSettings.isTestMode) {
+        changes.isTestMode = { old: currentSettings.isTestMode, new: updatedSettings.isTestMode };
+      }
+
+      await LogService.logSettingsUpdated(req.user._id, changes);
+    } catch (logError) {
+      console.error('Error logging settings update:', logError);
+    }
+
+    res.json({ 
+      message: 'Settings updated successfully',
+      settings: updatedSettings 
+    });
+  } catch (error) {
+    console.error('Error updating settings:', error);
+    res.status(500).json({ 
+      message: 'Failed to update settings',
       error: error.message 
     });
   }

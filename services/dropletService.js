@@ -2,6 +2,7 @@ import Droplet from '../models/Droplet.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import DigitalOceanService from './digitalOceanService.js';
+import LogService from './logService.js';
 
 class DropletService {
   constructor() {
@@ -29,9 +30,38 @@ class DropletService {
       });
       
       await droplet.save();
+      
+      // Log droplet creation
+      try {
+        await LogService.logDropletCreated(dropletData.user, dropletData.dropletId, {
+          name: dropletData.name,
+          sizeSlug: dropletData.sizeSlug,
+          regionSlug: dropletData.regionSlug,
+          ipAddress: dropletData.ipAddress,
+          memory: dropletData.memory,
+          vcpus: dropletData.vcpus,
+          disk: dropletData.disk
+        });
+      } catch (logError) {
+        console.error('Error logging droplet creation:', logError);
+      }
+      
       return droplet;
     } catch (error) {
       console.error('Error creating droplet record:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to create droplet record',
+          error: error.message,
+          context: 'droplet_creation',
+          userId: dropletData.user
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }
@@ -214,10 +244,12 @@ class DropletService {
   // Restart droplet
   async restartDroplet(dropletId) {
     try {
-      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) }).populate('user');
       if (!droplet) {
         throw new Error('Droplet not found');
       }
+
+      const previousStatus = droplet.status;
 
       // Restart via DigitalOcean
       await this.digitalOceanService.rebootDroplet(dropletId);
@@ -226,9 +258,33 @@ class DropletService {
       droplet.status = 'new'; // Will be updated to 'active' when synced
       await droplet.save();
       
+      // Log droplet restart
+      try {
+        await LogService.logDropletRestarted(droplet.user._id, dropletId, {
+          name: droplet.name,
+          previousStatus: previousStatus,
+          newStatus: droplet.status
+        });
+      } catch (logError) {
+        console.error('Error logging droplet restart:', logError);
+      }
+      
       return droplet;
     } catch (error) {
       console.error('Error restarting droplet:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to restart droplet',
+          error: error.message,
+          context: 'droplet_restart',
+          userId: null
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }
@@ -236,10 +292,12 @@ class DropletService {
   // Terminate droplet (power off)
   async terminateDroplet(dropletId) {
     try {
-      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) }).populate('user');
       if (!droplet) {
         throw new Error('Droplet not found');
       }
+
+      const previousStatus = droplet.status;
 
       // Power off via DigitalOcean
       await this.digitalOceanService.powerOffDroplet(dropletId);
@@ -248,9 +306,33 @@ class DropletService {
       droplet.status = 'off';
       await droplet.save();
       
+      // Log droplet termination
+      try {
+        await LogService.logDropletTerminated(droplet.user._id, dropletId, {
+          name: droplet.name,
+          previousStatus: previousStatus,
+          newStatus: droplet.status
+        });
+      } catch (logError) {
+        console.error('Error logging droplet termination:', logError);
+      }
+      
       return droplet;
     } catch (error) {
       console.error('Error terminating droplet:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to terminate droplet',
+          error: error.message,
+          context: 'droplet_termination',
+          userId: null
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }
@@ -258,10 +340,12 @@ class DropletService {
   // Reprovision droplet (power on)
   async reprovisionDroplet(dropletId) {
     try {
-      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) }).populate('user');
       if (!droplet) {
         throw new Error('Droplet not found');
       }
+
+      const previousStatus = droplet.status;
 
       // Power on via DigitalOcean
       await this.digitalOceanService.powerOnDroplet(dropletId);
@@ -270,9 +354,33 @@ class DropletService {
       droplet.status = 'new'; // Will be updated to 'active' when synced
       await droplet.save();
       
+      // Log droplet reprovisioning
+      try {
+        await LogService.logDropletReprovisioned(droplet.user._id, dropletId, {
+          name: droplet.name,
+          previousStatus: previousStatus,
+          newStatus: droplet.status
+        });
+      } catch (logError) {
+        console.error('Error logging droplet reprovisioning:', logError);
+      }
+      
       return droplet;
     } catch (error) {
       console.error('Error reprovisioning droplet:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to reprovision droplet',
+          error: error.message,
+          context: 'droplet_reprovisioning',
+          userId: null
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }
@@ -280,13 +388,25 @@ class DropletService {
   // Delete droplet
   async deleteDroplet(dropletId) {
     try {
-      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) }).populate('user');
       if (!droplet) {
         throw new Error('Droplet not found');
       }
 
+      const previousStatus = droplet.status;
+
       // Delete via DigitalOcean
       await this.digitalOceanService.deleteDroplet(dropletId);
+      
+      // Log droplet deletion
+      try {
+        await LogService.logDropletDeleted(droplet.user._id, dropletId, {
+          name: droplet.name,
+          previousStatus: previousStatus
+        });
+      } catch (logError) {
+        console.error('Error logging droplet deletion:', logError);
+      }
       
       // Delete from local database
       await Droplet.findByIdAndDelete(droplet._id);
@@ -294,6 +414,19 @@ class DropletService {
       return { message: 'Droplet deleted successfully' };
     } catch (error) {
       console.error('Error deleting droplet:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to delete droplet',
+          error: error.message,
+          context: 'droplet_deletion',
+          userId: null
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }

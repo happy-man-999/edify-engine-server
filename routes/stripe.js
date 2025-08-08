@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import dotenv from 'dotenv';
 import SignupProgress from '../models/SignupProgress.js';
 import { authenticateToken } from '../middleware/auth.js';
+import LogService from '../services/logService.js';
 
 dotenv.config();
 
@@ -126,14 +127,47 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   switch (event.type) {
     case 'payment_intent.succeeded':
       const paymentIntent = event.data.object;
+      // Log successful payment
+      try {
+        await LogService.logWebhook({
+          type: 'payment_intent.succeeded',
+          source: 'stripe',
+          payload: paymentIntent,
+          status: 'completed'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
       // Here you would typically update your database to mark the user as paid
       break;
     case 'payment_intent.payment_failed':
       const failedPayment = event.data.object;
       console.log('Payment failed:', failedPayment.id);
+      // Log failed payment
+      try {
+        await LogService.logWebhook({
+          type: 'payment_intent.payment_failed',
+          source: 'stripe',
+          payload: failedPayment,
+          status: 'failed'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
       break;
     default:
       console.log(`Unhandled event type ${event.type}`);
+      // Log unhandled event
+      try {
+        await LogService.logWebhook({
+          type: event.type,
+          source: 'stripe',
+          payload: event.data.object,
+          status: 'unhandled'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
   }
 
   res.json({ received: true });
@@ -157,6 +191,19 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       progress.isCompleted = true;
       progress.completedAt = new Date();
       await progress.save();
+      
+      // Log successful payment
+      try {
+        await LogService.logPurchase(req.user._id, null, null, {
+          itemName: 'Edify Engine Premium Plan',
+          amount: amount,
+          paymentMethod: 'stripe',
+          signature: sessionId,
+          currency: 'USD'
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
       
       res.json({ 
         success: true, 

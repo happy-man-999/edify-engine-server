@@ -3,6 +3,8 @@ import SolanaService from '../services/solanaService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
+import LogService from '../services/logService.js';
+import Settings from '../models/Settings.js';
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
@@ -39,12 +41,24 @@ router.post('/transaction', async (req, res) => {
         txInfo = await solanaService.getTransactionInfo(signature);
       } catch (error) {
         console.error('Error fetching transaction info:', error.message);
+        // Log error
+        try {
+          await LogService.logError({
+            message: 'Failed to fetch transaction info',
+            error: error.message,
+            context: 'solana_transaction_processing',
+            userId: null
+          });
+        } catch (logError) {
+          console.error('Error logging error:', logError);
+        }
         return res.status(500).json({ error: 'Failed to fetch transaction info' });
       }
 
       // Save transaction to MongoDB using transaction service
+      let transaction;
       try {
-        await transactionService.createTransaction({
+        transaction = await transactionService.createTransaction({
           signature: signature,
           user: txInfo.userId,
           amount: txInfo.amount,
@@ -53,6 +67,19 @@ router.post('/transaction', async (req, res) => {
           date: new Date(),
           item: txInfo.itemId
         });
+        
+        // Log purchase
+        try {
+          await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
+            itemName: txInfo.itemName || 'Unknown Item',
+            amount: txInfo.amount,
+            paymentMethod: 'solana',
+            signature: signature,
+            currency: 'SOL'
+          });
+        } catch (logError) {
+          console.error('Error logging purchase:', logError);
+        }
       } catch (error) {
         console.error('Error saving transaction to database:', error.message);
         return res.status(500).json({ error: 'Failed to save transaction' });
@@ -61,10 +88,13 @@ router.post('/transaction', async (req, res) => {
       let dropletId;
       
       try {
+        // Get settings from MongoDB
+        const settings = await Settings.getSettings();
+        
         const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
         const result = await digitalOceanService.createNewDroplet({
           name: signature.slice(0, 6),
-          image: process.env.SAMPLE_DROPLET_SNAPSHOT_ID
+          image: settings.defaultSnapshotId
         });
         console.log(result)
 
@@ -74,8 +104,9 @@ router.post('/transaction', async (req, res) => {
         dropletId = result.droplet.id;
 
         // Save droplet information to database
+        let droplet;
         try {
-          await dropletService.createDroplet({
+          droplet = await dropletService.createDroplet({
             dropletId: result.droplet.id,
             name: result.droplet.name,
             sizeSlug: result.droplet.size_slug,
@@ -90,18 +121,57 @@ router.post('/transaction', async (req, res) => {
             priceMonthly: result.droplet.size.price_monthly,
             tags: result.droplet.tags || []
           });
+          
+          // Log droplet creation
+          try {
+            await LogService.logDropletCreated(txInfo.userId, result.droplet.id, {
+              name: result.droplet.name,
+              sizeSlug: result.droplet.size_slug,
+              regionSlug: result.droplet.region.slug,
+              ipAddress: result.droplet.networks?.v4?.[0]?.ip_address,
+              memory: result.droplet.memory,
+              vcpus: result.droplet.vcpus,
+              disk: result.droplet.disk
+            });
+          } catch (logError) {
+            console.error('Error logging droplet creation:', logError);
+          }
         } catch (error) {
           console.error('Error saving droplet to database:', error.message);
           // Don't fail the entire process if droplet save fails
         }
       } catch (error) {
         console.error('Error creating droplet:', error.message);
+        // Log error
+        try {
+          await LogService.logError({
+            message: 'Failed to create droplet',
+            error: error.message,
+            context: 'droplet_creation',
+            userId: txInfo.userId
+          });
+        } catch (logError) {
+          console.error('Error logging error:', logError);
+        }
         return res.status(500).json({ error: 'Failed to create droplet' });
       }
 
       try {
+        // Get settings from MongoDB
+        const settings = await Settings.getSettings();
+        
         const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
-        await digitalOceanService.assignSubdomain(dropletId, process.env.DOMAIN, "new."+signature.slice(0, 6));
+        await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+signature.slice(0, 6));
+        
+        // Log subdomain assignment
+        try {
+          await LogService.logSubdomainAssigned(txInfo.userId, {
+            subdomain: "new."+signature.slice(0, 6),
+            dropletId: dropletId
+          });
+        } catch (logError) {
+          console.error('Error logging subdomain assignment:', logError);
+        }
       } catch (error) {
         console.error('Error assigning subdomain:', error.message);
         return res.status(500).json({ error: 'Failed to assign subdomain' });

@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import SignupProgress from '../models/SignupProgress.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
+import LogService from '../services/logService.js';
 
 const router = express.Router();
 
@@ -49,6 +50,19 @@ passport.use(new GoogleStrategy({
     });
 
     await newUser.save();
+    
+    // Log user signup
+    try {
+      await LogService.logUserSignup(newUser._id, {
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        googleId: newUser.googleId
+      });
+    } catch (logError) {
+      console.error('Error logging user signup:', logError);
+    }
+    
     return done(null, newUser);
   } catch (error) {
     return done(error, null);
@@ -99,6 +113,17 @@ router.post('/signup', async (req, res) => {
     });
 
     await user.save();
+
+    // Log user signup
+    try {
+      await LogService.logUserSignup(user._id, {
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName
+      });
+    } catch (logError) {
+      console.error('Error logging user signup:', logError);
+    }
 
     // Generate token
     const token = generateToken(user._id);

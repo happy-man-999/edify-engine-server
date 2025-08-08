@@ -1,6 +1,7 @@
 import Transaction from '../models/Transaction.js';
 import User from '../models/User.js';
 import Item from '../models/Item.js';
+import LogService from './logService.js';
 
 class TransactionService {
   // Create a new transaction
@@ -17,9 +18,36 @@ class TransactionService {
       });
       
       await transaction.save();
+      
+      // Log transaction creation
+      try {
+        await LogService.logTransactionCreated(transactionData.user, transaction._id, {
+          signature: transactionData.signature,
+          amount: transactionData.amount,
+          paymentMethod: transactionData.paymentMethod,
+          status: transactionData.status,
+          currency: transactionData.currency || 'USD'
+        });
+      } catch (logError) {
+        console.error('Error logging transaction creation:', logError);
+      }
+      
       return transaction;
     } catch (error) {
       console.error('Error creating transaction:', error);
+      
+      // Log error
+      try {
+        await LogService.logError({
+          message: 'Failed to create transaction',
+          error: error.message,
+          context: 'transaction_creation',
+          userId: transactionData.user
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
+      }
+      
       throw error;
     }
   }
