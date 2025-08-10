@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import DigitalOceanService from './digitalOceanService.js';
 import LogService from './logService.js';
+import mongoose from 'mongoose';
 
 class DropletService {
   constructor() {
@@ -74,70 +75,279 @@ class DropletService {
         limit = 10,
         search = '',
         status = '',
+        sizeSlug = '',
+        regionSlug = '',
+        userId = '',
+        createdAtFrom = '',
+        createdAtTo = '',
         sortBy = 'createdAt',
         sortOrder = 'desc'
       } = filters;
 
+      // Debug: Log the filters being received
+      console.log('DropletService received filters:', filters);
+
       // Build query
       const query = {};
       
-      if (search) {
-        query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { dropletId: { $regex: search, $options: 'i' } }
-        ];
-      }
-
+      // Add status filter
       if (status && status !== 'all') {
         query.status = status;
       }
 
-      // Build sort object
-      const sort = {};
-      sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+      // Add size filter
+      if (sizeSlug) {
+        query.sizeSlug = sizeSlug;
+      }
 
-      // Calculate pagination
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      
-      // Get total count
-      const total = await Droplet.countDocuments(query);
-      
-      // Get droplets with user details
-      const droplets = await Droplet.find(query)
-        .populate('user', 'firstName lastName email')
-        .populate('transaction', 'signature amount')
-        .sort(sort)
-        .skip(skip)
-        .limit(parseInt(limit));
+      // Add region filter
+      if (regionSlug) {
+        query.regionSlug = regionSlug;
+      }
 
-      // Transform data for frontend
-      const transformedDroplets = droplets.map(droplet => ({
-        id: droplet.dropletId,
-        name: droplet.name,
-        sizeSlug: droplet.sizeSlug,
-        regionSlug: droplet.regionSlug,
-        status: droplet.status,
-        createdAt: droplet.createdAt,
-        user: droplet.user ? `${droplet.user.firstName} ${droplet.user.lastName}` : 'Unknown User',
-        userEmail: droplet.user ? droplet.user.email : null,
-        transaction: droplet.transaction ? droplet.transaction.signature : null,
-        ipAddress: droplet.ipAddress,
-        memory: droplet.memory,
-        vcpus: droplet.vcpus,
-        disk: droplet.disk,
-        priceMonthly: droplet.priceMonthly,
-        tags: droplet.tags
-      }));
-
-      return {
-        droplets: transformedDroplets,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / parseInt(limit))
+      // Add user filter
+      if (userId) {
+        // Check if userId is a valid ObjectId
+        if (mongoose.Types.ObjectId.isValid(userId)) {
+          query.user = new mongoose.Types.ObjectId(userId);
+        } else {
+          console.warn('Invalid userId provided:', userId);
         }
-      };
+      }
+
+      // Add date range filter
+      if (createdAtFrom || createdAtTo) {
+        query.createdAt = {};
+        if (createdAtFrom) {
+          // Ensure proper date formatting
+          const fromDate = new Date(createdAtFrom);
+          console.log('Processing createdAtFrom:', createdAtFrom, '->', fromDate, 'Valid:', !isNaN(fromDate.getTime()), 'ISO:', fromDate.toISOString());
+          if (!isNaN(fromDate.getTime())) {
+            query.createdAt.$gte = fromDate;
+          }
+        }
+        if (createdAtTo) {
+          // Ensure proper date formatting and set to end of day
+          const toDate = new Date(createdAtTo);
+          console.log('Processing createdAtTo:', createdAtTo, '->', toDate, 'Valid:', !isNaN(toDate.getTime()), 'ISO:', toDate.toISOString());
+          if (!isNaN(toDate.getTime())) {
+            toDate.setHours(23, 59, 59, 999);
+            query.createdAt.$lte = toDate;
+          }
+        }
+      }
+
+      // Debug: Log the built query
+      console.log('Built query:', JSON.stringify(query, null, 2));
+      
+      if (search) {
+        // Search in droplet fields and user names
+        // We need to use aggregation to search in populated user fields
+        const aggregationPipeline = [
+          {
+            $match: query // Apply non-search filters first
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user',
+              foreignField: '_id',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $match: {
+              $or: [
+                { name: { $regex: search, $options: 'i' } },
+                { ipAddress: { $regex: search, $options: 'i' } },
+                { 'userDetails.firstName': { $regex: search, $options: 'i' } },
+                { 'userDetails.lastName': { $regex: search, $options: 'i' } },
+                { 'userDetails.email': { $regex: search, $options: 'i' } }
+              ]
+            }
+          },
+          {
+            $lookup: {
+              from: 'transactions',
+              localField: 'transaction',
+              foreignField: '_id',
+              as: 'transactionDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$transactionDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $sort: {
+              [sortBy]: sortOrder === 'desc' ? -1 : 1
+            }
+          },
+          {
+            $skip: (parseInt(page) - 1) * parseInt(limit)
+          },
+          {
+            $limit: parseInt(limit)
+          },
+          {
+            $project: {
+              _id: 1,
+              dropletId: 1,
+              name: 1,
+              sizeSlug: 1,
+              regionSlug: 1,
+              status: 1,
+              createdAt: 1,
+              user: 1,
+              userDetails: 1,
+              transaction: 1,
+              transactionDetails: 1,
+              ipAddress: 1,
+              memory: 1,
+              vcpus: 1,
+              disk: 1,
+              priceMonthly: 1,
+              tags: 1
+            }
+          }
+        ];
+
+        console.log('Aggregation pipeline:', JSON.stringify(aggregationPipeline, null, 2));
+
+        // Get total count for pagination
+        const countPipeline = [
+          {
+            $match: query // Apply non-search filters first
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user',
+              foreignField: '_id',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $match: {
+              $or: [
+                { name: { $regex: search, $options: 'i' } },
+                { ipAddress: { $regex: search, $options: 'i' } },
+                { 'userDetails.firstName': { $regex: search, $options: 'i' } },
+                { 'userDetails.lastName': { $regex: search, $options: 'i' } },
+                { 'userDetails.email': { $regex: search, $options: 'i' } }
+              ]
+            }
+          }
+        ];
+
+        countPipeline.push({ $count: 'total' });
+
+        const totalResult = await Droplet.aggregate(countPipeline);
+        const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+        // Execute main aggregation
+        const droplets = await Droplet.aggregate(aggregationPipeline);
+
+        console.log(`Found ${droplets.length} droplets with aggregation pipeline`);
+
+        // Transform data for frontend
+        const transformedDroplets = droplets.map(droplet => ({
+          id: droplet.dropletId,
+          dropletId: droplet.dropletId, // Keep original field for clarity
+          name: droplet.name,
+          sizeSlug: droplet.sizeSlug,
+          regionSlug: droplet.regionSlug,
+          status: droplet.status,
+          createdAt: droplet.createdAt,
+          user: droplet.userDetails ? `${droplet.userDetails.firstName} ${droplet.userDetails.lastName}` : 'Unknown User',
+          userEmail: droplet.userDetails ? droplet.userDetails.email : null,
+          transaction: droplet.transactionDetails ? droplet.transactionDetails.signature : null,
+          ipAddress: droplet.ipAddress,
+          memory: droplet.memory,
+          vcpus: droplet.vcpus,
+          disk: droplet.disk,
+          priceMonthly: droplet.priceMonthly,
+          tags: droplet.tags
+        }));
+
+        return {
+          droplets: transformedDroplets,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            pages: Math.ceil(total / parseInt(limit))
+          }
+        };
+      } else {
+        // No search term - use regular query for better performance
+        
+        console.log('Using regular query (no search):', JSON.stringify(query, null, 2));
+        
+        // Build sort object
+        const sort = {};
+        sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        // Get total count
+        const total = await Droplet.countDocuments(query);
+        
+        // Get droplets with user details
+        const droplets = await Droplet.find(query)
+          .populate('user', 'firstName lastName email')
+          .populate('transaction', 'signature amount')
+          .sort(sort)
+          .skip(skip)
+          .limit(parseInt(limit));
+
+        console.log(`Found ${droplets.length} droplets with regular query`);
+
+        // Transform data for frontend
+        const transformedDroplets = droplets.map(droplet => ({
+          id: droplet.dropletId,
+          dropletId: droplet.dropletId, // Keep original field for clarity
+          name: droplet.name,
+          sizeSlug: droplet.sizeSlug,
+          regionSlug: droplet.regionSlug,
+          status: droplet.status,
+          createdAt: droplet.createdAt,
+          user: droplet.user ? `${droplet.user.firstName} ${droplet.user.lastName}` : 'Unknown User',
+          userEmail: droplet.user ? droplet.user.email : null,
+          transaction: droplet.transaction ? droplet.transaction.signature : null,
+          ipAddress: droplet.ipAddress,
+          memory: droplet.memory,
+          vcpus: droplet.vcpus,
+          disk: droplet.disk,
+          priceMonthly: droplet.priceMonthly,
+          tags: droplet.tags
+        }));
+
+        return {
+          droplets: transformedDroplets,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            pages: Math.ceil(total / parseInt(limit))
+          }
+        };
+      }
     } catch (error) {
       console.error('Error fetching droplets:', error);
       throw error;
@@ -224,6 +434,7 @@ class DropletService {
   transformDropletForFrontend(droplet) {
     return {
       id: droplet.dropletId,
+      dropletId: droplet.dropletId, // Keep original field for clarity
       name: droplet.name,
       sizeSlug: droplet.sizeSlug,
       regionSlug: droplet.regionSlug,

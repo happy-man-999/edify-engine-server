@@ -92,13 +92,7 @@ class TransactionService {
       // Build query
       const query = {};
       
-      if (search) {
-        query.$or = [
-          { signature: { $regex: search, $options: 'i' } },
-          { user: { $regex: search, $options: 'i' } }
-        ];
-      }
-
+      // Remove search from query since we'll handle it in aggregation
       if (paymentMethod && paymentMethod !== 'all') {
         query.paymentMethod = paymentMethod;
       }
@@ -150,40 +144,147 @@ class TransactionService {
       // Calculate pagination
       const skip = (parseInt(page) - 1) * parseInt(limit);
       
-      // Get total count
-      const total = await Transaction.countDocuments(query);
-      
-      // Get transactions with user details
-      const transactions = await Transaction.find(query)
-        .populate('user', 'firstName lastName email')
-        .sort(sort)
-        .skip(skip)
-        .limit(parseInt(limit));
+      if (search) {
+        // Use aggregation pipeline to search in user fields
+        const aggregationPipeline = [
+          {
+            $match: query // Apply non-search filters first
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user',
+              foreignField: '_id',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $match: {
+              $or: [
+                { signature: { $regex: search, $options: 'i' } },
+                { 'userDetails.firstName': { $regex: search, $options: 'i' } },
+                { 'userDetails.lastName': { $regex: search, $options: 'i' } },
+                { 'userDetails.email': { $regex: search, $options: 'i' } }
+              ]
+            }
+          },
+          {
+            $sort: sort
+          },
+          {
+            $skip: skip
+          },
+          {
+            $limit: parseInt(limit)
+          }
+        ];
 
-      // Transform data for frontend
-      const transformedTransactions = transactions.map(tx => ({
-        id: tx.signature,
-        amount: tx.amount,
-        currency: tx.paymentMethod === 'solana' ? 'SOL' : 'USD',
-        date: tx.date,
-        user: tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : 'Unknown User',
-        userEmail: tx.user ? tx.user.email : null,
-        paymentMethod: tx.paymentMethod === 'solana' ? 'Solana' : 'Stripe',
-        status: tx.status,
-        txHash: tx.paymentMethod === 'solana' ? tx.signature : null,
-        refunded: false, // Add refund logic later if needed
-        item: tx.item ? tx.item.name : null
-      }));
+        // Get total count for pagination
+        const countPipeline = [
+          {
+            $match: query // Apply non-search filters first
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user',
+              foreignField: '_id',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $match: {
+              $or: [
+                { signature: { $regex: search, $options: 'i' } },
+                { 'userDetails.firstName': { $regex: search, $options: 'i' } },
+                { 'userDetails.lastName': { $regex: search, $options: 'i' } },
+                { 'userDetails.email': { $regex: search, $options: 'i' } }
+              ]
+            }
+          }
+        ];
 
-      return {
-        transactions: transformedTransactions,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / parseInt(limit))
-        }
-      };
+        countPipeline.push({ $count: 'total' });
+
+        const totalResult = await Transaction.aggregate(countPipeline);
+        const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+        // Execute main aggregation
+        const transactions = await Transaction.aggregate(aggregationPipeline);
+
+        // Transform data for frontend
+        const transformedTransactions = transactions.map(tx => ({
+          id: tx.signature,
+          amount: tx.amount,
+          currency: tx.paymentMethod === 'solana' ? 'SOL' : 'USD',
+          date: tx.date,
+          user: tx.userDetails ? `${tx.userDetails.firstName} ${tx.userDetails.lastName}` : 'Unknown User',
+          userEmail: tx.userDetails ? tx.userDetails.email : null,
+          paymentMethod: tx.paymentMethod === 'solana' ? 'Solana' : 'Stripe',
+          status: tx.status,
+          txHash: tx.paymentMethod === 'solana' ? tx.signature : null,
+          refunded: false, // Add refund logic later if needed
+          item: tx.item ? tx.item.name : null
+        }));
+
+        return {
+          transactions: transformedTransactions,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            pages: Math.ceil(total / parseInt(limit))
+          }
+        };
+      } else {
+        // No search term - use regular query for better performance
+        // Get total count
+        const total = await Transaction.countDocuments(query);
+        
+        // Get transactions with user details
+        const transactions = await Transaction.find(query)
+          .populate('user', 'firstName lastName email')
+          .sort(sort)
+          .skip(skip)
+          .limit(parseInt(limit));
+
+        // Transform data for frontend
+        const transformedTransactions = transactions.map(tx => ({
+          id: tx.signature,
+          amount: tx.amount,
+          currency: tx.paymentMethod === 'solana' ? 'SOL' : 'USD',
+          date: tx.date,
+          user: tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : 'Unknown User',
+          userEmail: tx.user ? tx.user.email : null,
+          paymentMethod: tx.paymentMethod === 'solana' ? 'Solana' : 'Stripe',
+          status: tx.status,
+          txHash: tx.paymentMethod === 'solana' ? tx.signature : null,
+          refunded: false, // Add refund logic later if needed
+          item: tx.item ? tx.item.name : null
+        }));
+
+        return {
+          transactions: transformedTransactions,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            pages: Math.ceil(total / parseInt(limit))
+          }
+        };
+      }
     } catch (error) {
       console.error('Error fetching transactions:', error);
       throw error;
