@@ -9,6 +9,7 @@ import stripe from './routes/stripe.js';
 import auth from './routes/auth.js';
 import signupProgress from './routes/signupProgress.js';
 import admin from './routes/admin.js';
+import items from './routes/items.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -53,6 +54,7 @@ app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
 app.use('/api/signup-progress', signupProgress);
 app.use('/api/admin', admin);
+app.use('/api/items', items);
 
 // Catch-all for React Router paths (must be after API routes)
 app.use((req, res, next) => {

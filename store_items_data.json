@@ -1,0 +1,418 @@
+[
+  {
+    "title": "Analytics Dashboard",
+    "description": "Real-time data visualization for your virtual worlds",
+    "type": "app",
+    "category": "business",
+    "priceUSD": 3.99,
+    "priceSOL": 0.0025,
+    "image": "https://nfp.land/wp-content/uploads/2025/04/edify-engine-analytics-Dashbaord.png",
+    "rating": 4.0,
+    "reviewCount": 42,
+    "features": [
+      "Real-time data visualization",
+      "Interactive charts and graphs",
+      "Performance metrics tracking",
+      "User behavior analytics",
+      "Custom dashboard creation"
+    ],
+    "requirements": "WebGL 2.0 compatible browser",
+    "fileSize": "2.4 MB",
+    "version": "1.2.0",
+    "license": "personal",
+    "supportedPlatforms": ["web"],
+    "updateFrequency": "monthly",
+    "tags": ["analytics", "dashboard", "data", "visualization", "metrics"],
+    "keywords": ["analytics", "dashboard", "data visualization", "metrics", "performance"],
+    "isActive": true,
+    "isFeatured": false,
+    "salesCount": 156,
+    "viewCount": 1247,
+    "supportChannels": ["email", "documentation", "video-tutorials"],
+    "demoUrl": "https://demo.edifyengine.com/analytics",
+    "documentationUrl": "https://docs.edifyengine.com/analytics"
+  },
+  {
+    "title": "Multiplayer System",
+    "description": "Seamless multiplayer integration for your experiences",
+    "type": "app",
+    "category": "gaming",
+    "priceUSD": 59.99,
+    "priceSOL": 0.0375,
+    "image": "https://nfp.land/wp-content/uploads/2025/04/edify-engine-multiplayer-system.png",
+    "rating": 3.5,
+    "reviewCount": 28,
+    "features": [
+      "Real-time multiplayer synchronization",
+      "Player state management",
+      "Room-based matchmaking",
+      "Cross-platform compatibility",
+      "Scalable server architecture"
+    ],
+    "requirements": "WebRTC support, stable internet connection",
+    "fileSize": "8.7 MB",
+    "version": "2.1.0",
+    "license": "personal",
+    "supportedPlatforms": ["web", "mobile"],
+    "updateFrequency": "quarterly",
+    "tags": ["multiplayer", "gaming", "real-time", "synchronization", "networking"],
+    "keywords": ["multiplayer", "gaming", "real-time", "synchronization", "networking"],
+    "isActive": true,
+    "isFeatured": false,
+    "salesCount": 89,
+    "viewCount": 892,
+    "supportChannels": ["email", "chat", "documentation"],
+    "demoUrl": "https://demo.edifyengine.com/multiplayer",
+    "documentationUrl": "https://docs.edifyengine.com/multiplayer"
+  },
+  {
+    "title": "AI Assistant",
+    "description": "Complete inventory management for virtual items",
+    "type": "app",
+    "category": "creative",
+    "priceUSD": 49.99,
+    "priceSOL": 0.0312,
+    "image": "https://nfp.land/wp-content/uploads/2025/04/Edify-Engine-AI-Assistant.png",
+    "rating": 4.5,
+    "reviewCount": 35,
+    "features": [
+      "Intelligent item categorization",
+      "Automated inventory tracking",
+      "Smart search and filtering",
+      "Usage analytics",
+      "Integration with other apps"
+    ],
+    "requirements": "Modern browser with JavaScript enabled",
+    "fileSize": "5.2 MB",
+    "version": "1.8.0",
+    "license": "personal",
+    "supportedPlatforms": ["web"],
+    "updateFrequency": "monthly",
+    "tags": ["AI", "assistant", "inventory", "management", "automation"],
+    "keywords": ["AI", "assistant", "inventory management", "automation", "smart"],
+    "isActive": true,
+    "isFeatured": false,
+    "salesCount": 203,
+    "viewCount": 1567,
+    "supportChannels": ["email", "chat", "documentation"],
+    "demoUrl": "https://demo.edifyengine.com/ai-assistant",
+    "documentationUrl": "https://docs.edifyengine.com/ai-assistant"
+  },
+  {
+    "title": "Physics Engine",
+    "description": "Real-time illustrating dynamic physics simulations",
+    "type": "app",
+    "category": "creative",
+    "priceUSD": 29.99,
+    "priceSOL": 0.0187,
+    "image": "https://nfp.land/wp-content/uploads/2025/04/Edify-Engine-Physics-Engine.png",
+    "rating": 4.0,
+    "reviewCount": 52,
+    "features": [
+      "Realistic physics simulation",
+      "Collision detection",
+      "Particle systems",
+      "Rigid body dynamics",
+      "Fluid simulation"
+    ],
+    "requirements": "WebGL 2.0, modern CPU",
+    "fileSize": "12.1 MB",
+    "version": "3.0.0",
+    "license": "personal",
+    "supportedPlatforms": ["web", "vr"],
+    "updateFrequency": "quarterly",
+    "tags": ["physics", "simulation", "3D", "dynamics", "collision"],
+    "keywords": ["physics engine", "simulation", "3D physics", "dynamics", "collision"],
+    "isActive": true,
+    "isFeatured": false,
+    "salesCount": 178,
+    "viewCount": 1345,
+    "supportChannels": ["email", "documentation", "video-tutorials"],
+    "demoUrl": "https://demo.edifyengine.com/physics",
+    "documentationUrl": "https://docs.edifyengine.com/physics"
+  },
+  {
+    "title": "Business Essentials",
+    "description": "10 apps + 3 templates for professional environments",
+    "type": "bundle",
+    "category": "business",
+    "priceUSD": 289.99,
+    "priceSOL": 0.1812,
+    "originalPrice": 399.99,
+    "discount": 27,
+    "image": "https://nfp.land/wp-content/uploads/2023/04/nfp_store-scaled.jpg",
+    "rating": 4.0,
+    "reviewCount": 42,
+    "features": [
+      "10 professional apps",
+      "3 business templates",
+      "Documentation and guides",
+      "Priority support",
+      "Regular updates"
+    ],
+    "bundleItems": [
+      {
+        "itemTitle": "Analytics Dashboard",
+        "itemType": "app"
+      },
+      {
+        "itemTitle": "Project Management Tool",
+        "itemType": "app"
+      },
+      {
+        "itemTitle": "Business Template",
+        "itemType": "template"
+      }
+    ],
+    "license": "commercial",
+    "supportedPlatforms": ["web", "windows", "mac"],
+    "updateFrequency": "quarterly",
+    "tags": ["bundle", "business", "professional", "enterprise", "productivity"],
+    "keywords": ["business bundle", "professional", "enterprise", "productivity", "apps"],
+    "isActive": true,
+    "isFeatured": true,
+    "salesCount": 67,
+    "viewCount": 892,
+    "supportChannels": ["email", "chat", "priority-support"],
+    "demoUrl": "https://demo.edifyengine.com/business-essentials",
+    "documentationUrl": "https://docs.edifyengine.com/business-essentials"
+  },
+  {
+    "title": "Gaming Starter Kit",
+    "description": "5 gaming apps + 15 high-quality 3D assets",
+    "type": "bundle",
+    "category": "gaming",
+    "priceUSD": 149.99,
+    "priceSOL": 0.0937,
+    "image": "https://nfp.land/wp-content/uploads/2023/05/New-Frontier-Presents-Lunchables-Land.jpg",
+    "rating": 4.0,
+    "reviewCount": 0,
+    "features": [
+      "5 gaming applications",
+      "15 high-quality 3D assets",
+      "Gaming templates",
+      "Performance optimization tools",
+      "Gaming best practices guide"
+    ],
+    "bundleItems": [
+      {
+        "itemTitle": "Multiplayer System",
+        "itemType": "app"
+      },
+      {
+        "itemTitle": "Game Physics Engine",
+        "itemType": "app"
+      },
+      {
+        "itemTitle": "Gaming Assets Pack",
+        "itemType": "asset"
+      }
+    ],
+    "license": "personal",
+    "supportedPlatforms": ["web", "mobile", "vr"],
+    "updateFrequency": "biannual",
+    "tags": ["bundle", "gaming", "3D assets", "starter kit", "game development"],
+    "keywords": ["gaming bundle", "starter kit", "3D assets", "game development", "gaming apps"],
+    "isActive": true,
+    "isFeatured": false,
+    "salesCount": 23,
+    "viewCount": 445,
+    "supportChannels": ["email", "documentation", "forum"],
+    "demoUrl": "https://demo.edifyengine.com/gaming-starter",
+    "documentationUrl": "https://docs.edifyengine.com/gaming-starter"
+  },
+  {
+    "title": "Education Pack",
+    "description": "3 templates + 8 apps for virtual learning",
+    "type": "bundle",
+    "category": "education",
+    "priceUSD": 0,
+    "priceSOL": 0,
+    "image": "https://nfp.land/wp-content/uploads/2023/10/new-frontier-presents-university-of-miami.png",
+    "rating": 0,
+    "reviewCount": 0,
+    "features": [
+      "3 educational templates",
+      "8 learning applications",
+      "Interactive learning tools",
+      "Assessment systems",
+      "Student progress tracking"
+    ],
+    "bundleItems": [
+      {
+        "itemTitle": "Virtual Classroom Template",
+        "itemType": "template"
+      },
+      {
+        "itemTitle": "Learning Management System",
+        "itemType": "app"
+      },
+      {
+        "itemTitle": "Interactive Whiteboard",
+        "itemType": "app"
+      }
+    ],
+    "license": "free",
+    "supportedPlatforms": ["web", "mobile"],
+    "updateFrequency": "annual",
+    "tags": ["bundle", "education", "learning", "virtual classroom", "free"],
+    "keywords": ["education bundle", "learning", "virtual classroom", "free", "educational apps"],
+    "isActive": true,
+    "isFeatured": true,
+    "salesCount": 0,
+    "viewCount": 1234,
+    "supportChannels": ["email", "forum", "documentation"],
+    "demoUrl": "https://demo.edifyengine.com/education-pack",
+    "documentationUrl": "https://docs.edifyengine.com/education-pack"
+  },
+  {
+    "title": "Starter Creator Bundle",
+    "description": "Everything you need to launch your virtual world at an unbeatable price",
+    "type": "bundle",
+    "category": "creative",
+    "priceUSD": 267,
+    "priceSOL": 0.1668,
+    "originalPrice": 1247,
+    "discount": 78,
+    "image": "https://nfp.land/wp-content/uploads/2023/04/nfp_store-scaled.jpg",
+    "rating": 4.8,
+    "reviewCount": 156,
+    "features": [
+      "1 World Template",
+      "5 Premium 3D Objects",
+      "20 Essential Apps",
+      "Dedicated Server",
+      "Priority Support"
+    ],
+    "bundleItems": [
+      {
+        "itemTitle": "World Template",
+        "itemType": "template"
+      },
+      {
+        "itemTitle": "3D Objects Pack",
+        "itemType": "asset"
+      },
+      {
+        "itemTitle": "Essential Apps Collection",
+        "itemType": "app"
+      }
+    ],
+    "license": "personal",
+    "supportedPlatforms": ["web", "vr"],
+    "updateFrequency": "quarterly",
+    "tags": ["bundle", "starter", "creator", "limited time", "discount"],
+    "keywords": ["starter bundle", "creator", "limited time", "discount", "virtual world"],
+    "isActive": true,
+    "isFeatured": true,
+    "isLimited": true,
+    "salesCount": 89,
+    "viewCount": 2341,
+    "supportChannels": ["email", "priority-support", "documentation"],
+    "demoUrl": "https://demo.edifyengine.com/starter-creator",
+    "documentationUrl": "https://docs.edifyengine.com/starter-creator"
+  },
+  {
+    "title": "Professional Services",
+    "description": "Complete environment with furniture and props",
+    "type": "service",
+    "category": "business",
+    "priceUSD": 499.99,
+    "priceSOL": 0.3125,
+    "image": "https://nfp.land/wp-content/uploads/2025/04/edify-engine-professional-services.jpg",
+    "rating": 4.5,
+    "reviewCount": 128,
+    "features": [
+      "Custom environment design",
+      "Professional furniture setup",
+      "High-quality props and assets",
+      "Optimization for performance",
+      "Ongoing support and maintenance"
+    ],
+    "requirements": "Consultation required",
+    "license": "custom",
+    "supportedPlatforms": ["web", "vr"],
+    "updateFrequency": "on-demand",
+    "tags": ["service", "professional", "custom", "environment", "consultation"],
+    "keywords": ["professional services", "custom design", "environment setup", "consultation"],
+    "isActive": true,
+    "isFeatured": true,
+    "salesCount": 34,
+    "viewCount": 567,
+    "supportChannels": ["email", "chat", "priority-support"],
+    "demoUrl": "https://demo.edifyengine.com/professional-services",
+    "documentationUrl": "https://docs.edifyengine.com/professional-services"
+  },
+  {
+    "title": "Race Track",
+    "description": "Build your race track with this template",
+    "type": "template",
+    "category": "gaming",
+    "priceUSD": 229.99,
+    "priceSOL": 0.1437,
+    "image": "https://nfp.land/wp-content/uploads/2023/11/New-Frontier-Presents-Race-Club-Web3-Gaming-1.png",
+    "rating": 5.0,
+    "reviewCount": 87,
+    "features": [
+      "Complete race track layout",
+      "Multiple track variations",
+      "Racing infrastructure",
+      "Spectator areas",
+      "Customizable elements"
+    ],
+    "worldType": "racing",
+    "dimensions": {
+      "width": 2000,
+      "height": 100,
+      "depth": 2000
+    },
+    "license": "personal",
+    "supportedPlatforms": ["web", "vr"],
+    "updateFrequency": "annual",
+    "tags": ["template", "racing", "gaming", "track", "sports"],
+    "keywords": ["race track", "racing template", "gaming", "sports", "track layout"],
+    "isActive": true,
+    "isFeatured": true,
+    "salesCount": 156,
+    "viewCount": 2341,
+    "supportChannels": ["email", "documentation", "video-tutorials"],
+    "demoUrl": "https://demo.edifyengine.com/race-track",
+    "documentationUrl": "https://docs.edifyengine.com/race-track"
+  },
+  {
+    "title": "Desert Template",
+    "description": "Agade farm retreat with surrounding environment",
+    "type": "template",
+    "category": "creative",
+    "priceUSD": 179.99,
+    "priceSOL": 0.1125,
+    "image": "https://nfp.land/wp-content/uploads/2024/04/10.png",
+    "rating": 5.0,
+    "reviewCount": 64,
+    "features": [
+      "Desert landscape design",
+      "Farm retreat buildings",
+      "Environmental effects",
+      "Day/night cycle",
+      "Weather system"
+    ],
+    "worldType": "desert",
+    "dimensions": {
+      "width": 1500,
+      "height": 200,
+      "depth": 1500
+    },
+    "license": "personal",
+    "supportedPlatforms": ["web", "vr"],
+    "updateFrequency": "annual",
+    "tags": ["template", "desert", "farm", "retreat", "environment"],
+    "keywords": ["desert template", "farm retreat", "environment", "landscape", "nature"],
+    "isActive": true,
+    "isFeatured": true,
+    "salesCount": 98,
+    "viewCount": 1789,
+    "supportChannels": ["email", "documentation", "video-tutorials"],
+    "demoUrl": "https://demo.edifyengine.com/desert-template",
+    "documentationUrl": "https://docs.edifyengine.com/desert-template"
+  }
+] 
