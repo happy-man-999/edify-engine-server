@@ -4,7 +4,7 @@ const settingsSchema = new mongoose.Schema({
   defaultSnapshotId: {
     type: Number,
     required: true,
-    default: 123456
+    default: 195000837 // Default to a valid DigitalOcean snapshot ID
   },
   defaultDnsDomain: {
     type: String,

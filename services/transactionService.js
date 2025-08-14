@@ -14,7 +14,8 @@ class TransactionService {
         paymentMethod: transactionData.paymentMethod,
         status: transactionData.status,
         date: transactionData.date || new Date(),
-        item: transactionData.item
+        item: transactionData.item,
+        itemType: transactionData.itemType
       });
       
       await transaction.save();
@@ -67,6 +68,17 @@ class TransactionService {
     } catch (error) {
       console.error('Error fetching transaction:', error);
       throw error;
+    }
+  }
+
+  // Get transaction by signature (for checking if already processed)
+  async getTransactionBySignature(signature) {
+    try {
+      const transaction = await Transaction.findOne({ signature: signature });
+      return transaction; // Returns null if not found
+    } catch (error) {
+      console.error('Error fetching transaction by signature:', error);
+      return null; // Return null on error to allow processing to continue
     }
   }
 

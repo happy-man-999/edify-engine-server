@@ -11,94 +11,124 @@ const dropletService = new DropletService();
 
 const router = Router();
 
-const tempHeap = {}
-
 // Test endpoint to verify route is accessible
 router.get('/test', (req, res) => {
   res.json({ message: 'Solana route is working', timestamp: new Date().toISOString() });
 });
 
-router.post('/transaction', async (req, res) => {  
-  // Check required environment variables
-  if (!process.env.HELIUS_WEBHOOK_AUTH) {
-    console.error('HELIUS_WEBHOOK_AUTH environment variable not set');
-    return res.status(500).json({ error: 'Server configuration error' });
-  }
-  
-  const authHeader = req.headers['authorization'];
-  
-  if (authHeader === process.env.HELIUS_WEBHOOK_AUTH) {
-    const { type, signature } = Array.isArray(req.body) ? req.body[0] : req.body;
-    if (type === 'TRANSFER' && signature) {
-      if (tempHeap[signature]) {
-        return res.status(200).json({ message: 'Transaction already processed' });
-      }
-      tempHeap[signature] = true;
+router.post('/payment-success', async (req, res) => {
+  const { signature } = req.body;
+  if (signature) {
+    const processedTransaction = await transactionService.getTransactionBySignature(signature)
+    if (processedTransaction) {
+      return res.status(400).json({ message: 'Transaction already processed' });
+    }
 
-      let txInfo;
+    let txInfo;
+    try {
+      const solanaService = new SolanaService();
+      txInfo = await solanaService.getTransactionInfo(signature);
+    } catch (error) {
+      console.error('Error fetching transaction info:', error.message);
+      // Log error
       try {
-        const solanaService = new SolanaService();
-        txInfo = await solanaService.getTransactionInfo(signature);
-      } catch (error) {
-        console.error('Error fetching transaction info:', error.message);
-        // Log error
-        try {
-          await LogService.logError({
-            message: 'Failed to fetch transaction info',
-            error: error.message,
-            context: 'solana_transaction_processing',
-            userId: null
-          });
-        } catch (logError) {
-          console.error('Error logging error:', logError);
-        }
-        return res.status(500).json({ error: 'Failed to fetch transaction info' });
+        await LogService.logError({
+          message: 'Failed to fetch transaction info',
+          error: error.message,
+          context: 'solana_transaction_processing',
+          userId: null
+        });
+      } catch (logError) {
+        console.error('Error logging error:', logError);
       }
+      return res.status(500).json({ error: 'Failed to fetch transaction info' });
+    }
 
-      // Save transaction to MongoDB using transaction service
-      let transaction;
+    // Determine if this is a new-world creation or item purchase
+    const isNewWorld = txInfo.itemId === 'new-world';
+    const isItemPurchase = txInfo.itemId && txInfo.itemId !== 'new-world' && txInfo.itemId !== 'premium-plan';
+
+    // Save transaction to MongoDB using transaction service
+    let transaction;
+    try {
+      transaction = await transactionService.createTransaction({
+        signature: signature,
+        user: txInfo.userId,
+        amount: txInfo.amount,
+        paymentMethod: 'solana',
+        status: 'success',
+        date: new Date(),
+        item: isItemPurchase ? txInfo.itemId : null,
+        itemType: isNewWorld ? 'new-world' : 
+                 isItemPurchase ? 'item-purchase' : 'other'
+      });
+      
+      // Log purchase
       try {
-        transaction = await transactionService.createTransaction({
-          signature: signature,
-          user: txInfo.userId,
+        await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
+          itemName: txInfo.itemName || 'Unknown Item',
           amount: txInfo.amount,
           paymentMethod: 'solana',
-          status: 'success',
-          date: new Date(),
-          item: txInfo.itemId
+          signature: signature,
+          currency: 'SOL'
         });
-        
-        // Log purchase
-        try {
-          await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
-            itemName: txInfo.itemName || 'Unknown Item',
-            amount: txInfo.amount,
-            paymentMethod: 'solana',
-            signature: signature,
-            currency: 'SOL'
-          });
-        } catch (logError) {
-          console.error('Error logging purchase:', logError);
-        }
-      } catch (error) {
-        console.error('Error saving transaction to database:', error.message);
-        return res.status(500).json({ error: 'Failed to save transaction' });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
       }
+    } catch (error) {
+      console.error('Error saving transaction to database:', error.message);
+      return res.status(500).json({ error: 'Failed to save transaction' });
+    }
 
+    // Handle new-world creation (clone droplet)
+    if (isNewWorld) {
       let dropletId;
       
       try {
         // Get settings from MongoDB
         const settings = await Settings.getSettings();
+        console.log('Settings retrieved:', { 
+          defaultSnapshotId: settings.defaultSnapshotId, 
+          defaultDnsDomain: settings.defaultDnsDomain 
+        });
+        
+        // Validate snapshot ID
+        if (!settings.defaultSnapshotId || isNaN(settings.defaultSnapshotId) || settings.defaultSnapshotId <= 0) {
+          console.error('Invalid snapshot ID in settings:', settings.defaultSnapshotId);
+          return res.status(500).json({ error: 'Invalid snapshot configuration' });
+        }
+        
+        // Check if DigitalOcean token is available
+        if (!process.env.DIGITAL_OCEAN_TOKEN) {
+          console.error('DigitalOcean token not found in environment variables');
+          return res.status(500).json({ error: 'DigitalOcean service not configured' });
+        }
         
         const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
-        const result = await digitalOceanService.createNewDroplet({
+        
+        // Log droplet creation attempt
+        console.log('Attempting to create droplet with config:', {
           name: signature.slice(0, 6),
+          image: settings.defaultSnapshotId,
+          token: process.env.DIGITAL_OCEAN_TOKEN ? '***' : 'missing'
+        });
+        
+        // Validate droplet name format (DigitalOcean requirements)
+        const dropletName = signature.slice(0, 6);
+        if (!dropletName || dropletName.length < 3) {
+          console.error('Invalid droplet name generated:', dropletName);
+          return res.status(500).json({ error: 'Invalid droplet name format' });
+        }
+        
+        const result = await digitalOceanService.createNewDroplet({
+          name: dropletName,
           image: settings.defaultSnapshotId
         });
-        console.log(result)
+
+        console.log('Droplet creation result:', result);
 
         if (!result.droplet || !result.droplet.id) {
+          console.error('Droplet creation failed - no droplet ID returned:', result);
           return res.status(500).json({ error: 'Failed to create droplet' });
         }
         dropletId = result.droplet.id;
@@ -140,8 +170,51 @@ router.post('/transaction', async (req, res) => {
           console.error('Error saving droplet to database:', error.message);
           // Don't fail the entire process if droplet save fails
         }
+
+        // Assign subdomain
+        try {
+          await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+signature.slice(0, 6));
+          
+          // Log subdomain assignment
+          try {
+            await LogService.logSubdomainAssigned(txInfo.userId, {
+              subdomain: "new."+signature.slice(0, 6),
+              dropletId: dropletId
+            });
+          } catch (logError) {
+            console.error('Error logging subdomain assignment:', logError);
+          }
+        } catch (error) {
+          console.error('Error assigning subdomain:', error.message);
+          return res.status(500).json({ error: 'Failed to assign subdomain' });
+        }
+
+        // Power on droplet
+        try {
+          await digitalOceanService.powerOnDroplet(dropletId);
+        } catch (error) {
+          console.error('Error running droplet:', error.message);
+          return res.status(500).json({ error: 'Failed to run droplet' });
+        }
+
+        return res.status(200).json({ 
+          message: 'New world transaction processed successfully and droplet created',
+          itemType: 'new-world',
+          dropletId: dropletId,
+          domain: `new.${signature.slice(0, 6)}.${settings.defaultDnsDomain}`
+        });
       } catch (error) {
         console.error('Error creating droplet:', error.message);
+        
+        // Log specific DigitalOcean API errors
+        if (error.response) {
+          console.error('DigitalOcean API error details:', {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          });
+        }
+        
         // Log error
         try {
           await LogService.logError({
@@ -155,40 +228,22 @@ router.post('/transaction', async (req, res) => {
         }
         return res.status(500).json({ error: 'Failed to create droplet' });
       }
-
-      try {
-        // Get settings from MongoDB
-        const settings = await Settings.getSettings();
-        
-        const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
-        await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+signature.slice(0, 6));
-        
-        // Log subdomain assignment
-        try {
-          await LogService.logSubdomainAssigned(txInfo.userId, {
-            subdomain: "new."+signature.slice(0, 6),
-            dropletId: dropletId
-          });
-        } catch (logError) {
-          console.error('Error logging subdomain assignment:', logError);
-        }
-      } catch (error) {
-        console.error('Error assigning subdomain:', error.message);
-        return res.status(500).json({ error: 'Failed to assign subdomain' });
-      }
-
-      try {
-        const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
-        await digitalOceanService.powerOnDroplet(dropletId);
-      } catch (error) {
-        console.error('Error running droplet:', error.message);
-        return res.status(500).json({ error: 'Failed to run droplet' });
-      }
+    } else if (isItemPurchase) {
+      // Handle item purchase - no droplet creation needed
+      return res.status(200).json({ 
+        message: 'Item purchase transaction processed successfully',
+        itemType: 'item-purchase',
+        itemId: txInfo.itemId
+      });
+    } else {
+      // Handle premium plan or other types
+      return res.status(200).json({ 
+        message: 'Transaction processed successfully',
+        itemType: 'other'
+      });
     }
-    res.status(200).json({ message: 'Transaction processed successfully' });
   } else {
-    console.log('Authorization failed');
-    res.status(401).json({ error: 'Unauthorized' });
+    return res.status(400).json({ error: 'Signature is required' });
   }
 });
 

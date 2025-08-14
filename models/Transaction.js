@@ -36,6 +36,11 @@ const transactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Item',
     required: false
+  },
+  itemType: {
+    type: String,
+    enum: ['new-world', 'item-purchase', 'premium-plan', 'other'],
+    required: false
   }
 }, {
   timestamps: true

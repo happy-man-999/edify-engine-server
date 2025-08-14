@@ -4,10 +4,16 @@ import dotenv from 'dotenv';
 import SignupProgress from '../models/SignupProgress.js';
 import { authenticateToken } from '../middleware/auth.js';
 import LogService from '../services/logService.js';
+import TransactionService from '../services/transactionService.js';
+import DropletService from '../services/dropletService.js';
+import DigitalOceanService from '../services/digitalOceanService.js';
+import Settings from '../models/Settings.js';
 
 dotenv.config();
 
 const router = express.Router();
+const transactionService = new TransactionService();
+const dropletService = new DropletService();
 
 let stripe = null;
 
@@ -75,7 +81,7 @@ router.post('/create-checkout-session', async (req, res) => {
       });
     }
 
-    // Create a Checkout Session
+    // Create a Checkout Session with metadata
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -94,6 +100,10 @@ router.post('/create-checkout-session', async (req, res) => {
       mode: 'payment',
       success_url: success_url || `${req.headers.origin}/signup-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancel_url || `${req.headers.origin}/signup`,
+      metadata: {
+        itemName: itemName || 'Edify Engine',
+        itemId: itemId || 'unknown'
+      }
     });
 
     res.json({
@@ -175,33 +185,207 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   res.json({ received: true });
 });
 
-// Payment success endpoint
+// Payment success webhook
 router.post('/payment-success', authenticateToken, async (req, res) => {
   try {
-    const { sessionId, amount } = req.body;
+    const { sessionId } = req.body;
     
-    // Update signup progress to mark payment as completed
-    const progress = await SignupProgress.findOne({ userId: req.user._id });
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required' });
+    }
+
+    // Retrieve the session from Stripe
+    let session;
+    try {
+      if (stripe) {
+        session = await stripe.checkout.sessions.retrieve(sessionId);
+      } else {
+        // Mock session for development
+        session = {
+          metadata: { itemName: 'Mock Item', itemId: 'mock-id' },
+          amount_total: 2999,
+          currency: 'usd'
+        };
+      }
+    } catch (error) {
+      console.error('Error retrieving Stripe session:', error);
+      return res.status(500).json({ error: 'Failed to retrieve payment session' });
+    }
+
+    const sessionMetadata = session.metadata;
+    const itemId = sessionMetadata?.itemId;
+    const itemName = sessionMetadata?.itemName;
+    const amount = session.amount_total / 100; // Convert from cents to dollars
+    const currency = session.currency?.toUpperCase() || 'USD';
     
-    if (progress) {
-      progress.payment = {
-        isCompleted: true,
-        stripeSessionId: sessionId,
+    // Create transaction record first
+    let transaction;
+    try {
+      transaction = await transactionService.createTransaction({
+        signature: sessionId,
+        user: req.user._id,
         amount: amount,
-        completedAt: new Date()
-      };
-      progress.isCompleted = true;
-      progress.completedAt = new Date();
-      await progress.save();
+        paymentMethod: 'stripe',
+        status: 'success',
+        date: new Date(),
+        item: null, // Will be set based on item type
+        itemType: itemId === 'new-world' ? 'new-world' : 
+                 itemId === 'premium-plan' ? 'premium-plan' : 
+                 itemId && itemId !== 'unknown' ? 'item-purchase' : 'other'
+      });
+    } catch (error) {
+      console.error('Error creating transaction:', error);
+      return res.status(500).json({ error: 'Failed to create transaction record' });
+    }
+
+    // Handle different payment types based on itemId
+    if (itemId === 'premium-plan') {
+      // Handle premium plan signup payment
+      const progress = await SignupProgress.findOne({ userId: req.user._id });
       
-      // Log successful payment
+      if (progress) {
+        progress.payment = {
+          isCompleted: true,
+          stripeSessionId: sessionId,
+          amount: amount,
+          completedAt: new Date()
+        };
+        progress.isCompleted = true;
+        progress.completedAt = new Date();
+        await progress.save();
+        
+        // Log successful premium plan payment
+        try {
+          await LogService.logPurchase(req.user._id, null, transaction._id, {
+            itemName: 'Edify Engine Premium Plan',
+            amount: amount,
+            paymentMethod: 'stripe',
+            signature: sessionId,
+            currency: currency
+          });
+        } catch (logError) {
+          console.error('Error logging purchase:', logError);
+        }
+        
+        res.json({ 
+          success: true, 
+          message: 'Premium plan payment completed and signup progress updated',
+          itemType: 'premium-plan',
+          itemName: itemName
+        });
+      } else {
+        console.log('POST /payment-success - No signup progress found for user:', req.user._id);
+        res.status(404).json({ error: 'No signup progress found' });
+      }
+    } else if (itemId === 'new-world') {
+      // Handle new world creation payment - similar to Solana route
+      console.log(`New world creation payment successful for user ${req.user._id}, amount: ${amount}`);
+      
+      let dropletId;
+      
       try {
-        await LogService.logPurchase(req.user._id, null, null, {
-          itemName: 'Edify Engine Premium Plan',
+        // Get settings from MongoDB
+        const settings = await Settings.getSettings();
+        
+        const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
+        const result = await digitalOceanService.createNewDroplet({
+          name: sessionId.slice(0, 6),
+          image: settings.defaultSnapshotId
+        });
+
+        if (!result.droplet || !result.droplet.id) {
+          return res.status(500).json({ error: 'Failed to create droplet' });
+        }
+        dropletId = result.droplet.id;
+
+        // Save droplet information to database
+        let droplet;
+        try {
+          droplet = await dropletService.createDroplet({
+            dropletId: result.droplet.id,
+            name: result.droplet.name,
+            sizeSlug: result.droplet.size_slug,
+            regionSlug: result.droplet.region.slug,
+            status: result.droplet.status,
+            createdAt: new Date(result.droplet.created_at),
+            user: req.user._id,
+            transaction: transaction._id,
+            memory: result.droplet.memory,
+            vcpus: result.droplet.vcpus,
+            disk: result.droplet.disk,
+            priceMonthly: result.droplet.size.price_monthly,
+            tags: result.droplet.tags || []
+          });
+          
+          // Log droplet creation
+          try {
+            await LogService.logDropletCreated(req.user._id, result.droplet.id, {
+              name: result.droplet.name,
+              sizeSlug: result.droplet.size_slug,
+              regionSlug: result.droplet.region.slug,
+              ipAddress: result.droplet.networks?.v4?.[0]?.ip_address,
+              memory: result.droplet.memory,
+              vcpus: result.droplet.vcpus,
+              disk: result.droplet.disk
+            });
+          } catch (logError) {
+            console.error('Error logging droplet creation:', logError);
+          }
+        } catch (error) {
+          console.error('Error saving droplet to database:', error.message);
+          // Don't fail the entire process if droplet save fails
+        }
+
+        // Assign subdomain
+        try {
+          await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+sessionId.slice(0, 6));
+          
+          // Log subdomain assignment
+          try {
+            await LogService.logSubdomainAssigned(req.user._id, {
+              subdomain: "new."+sessionId.slice(0, 6),
+              dropletId: dropletId
+            });
+          } catch (logError) {
+            console.error('Error logging subdomain assignment:', logError);
+          }
+        } catch (error) {
+          console.error('Error assigning subdomain:', error.message);
+          return res.status(500).json({ error: 'Failed to assign subdomain' });
+        }
+
+        // Power on droplet
+        try {
+          await digitalOceanService.powerOnDroplet(dropletId);
+        } catch (error) {
+          console.error('Error running droplet:', error.message);
+          return res.status(500).json({ error: 'Failed to run droplet' });
+        }
+        
+      } catch (error) {
+        console.error('Error creating droplet:', error.message);
+        // Log error
+        try {
+          await LogService.logError({
+            message: 'Failed to create droplet',
+            error: error.message,
+            context: 'droplet_creation',
+            userId: req.user._id
+          });
+        } catch (logError) {
+          console.error('Error logging error:', logError);
+        }
+        return res.status(500).json({ error: 'Failed to create droplet' });
+      }
+      
+      // Log successful new world payment
+      try {
+        await LogService.logPurchase(req.user._id, null, transaction._id, {
+          itemName: 'New World Creation',
           amount: amount,
           paymentMethod: 'stripe',
           signature: sessionId,
-          currency: 'USD'
+          currency: currency
         });
       } catch (logError) {
         console.error('Error logging purchase:', logError);
@@ -209,11 +393,40 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       
       res.json({ 
         success: true, 
-        message: 'Payment completed and signup progress updated' 
+        message: 'New world creation payment completed and droplet created',
+        itemType: 'new-world',
+        itemName: itemName,
+        dropletId: dropletId,
+        domain: `new.${sessionId.slice(0, 6)}.${settings.defaultDnsDomain}`
+      });
+    } else if (itemId && itemId !== 'unknown') {
+      // Handle item purchase payment
+      console.log(`Item purchase payment successful for user ${req.user._id}, itemId: ${itemId}, amount: ${amount}`);
+      
+      // Log successful item purchase
+      try {
+        await LogService.logPurchase(req.user._id, itemId, transaction._id, {
+          itemName: itemName || 'Store Item',
+          amount: amount,
+          paymentMethod: 'stripe',
+          signature: sessionId,
+          currency: currency
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'Item purchase payment completed',
+        itemType: 'item-purchase',
+        itemId: itemId,
+        itemName: itemName
       });
     } else {
-      console.log('POST /payment-success - No signup progress found for user:', req.user._id);
-      res.status(404).json({ error: 'No signup progress found' });
+      // Unknown item type
+      console.log(`Unknown payment type for user ${req.user._id}, sessionId: ${sessionId}, amount: ${amount}`);
+      res.status(400).json({ error: 'Unknown payment type' });
     }
   } catch (error) {
     console.error('Payment success error:', error);

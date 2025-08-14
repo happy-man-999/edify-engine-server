@@ -6,29 +6,48 @@ class DigitalOceanService {
   }
 
   async createNewDroplet(dropletConfig = {}) {
-    // Default configuration
-    const defaultConfig = {
-      name: "new-world",
-      region: "nyc3",
-      size: "s-1vcpu-1gb",
-      image: 195000837,
-      backups: true,
-      ipv6: true,
-      monitoring: true,
-      tags: ["cloned", "world"],
-    };
+    try {
+      // Default configuration
+      const defaultConfig = {
+        name: "new-world",
+        region: "nyc3",
+        size: "s-1vcpu-1gb",
+        image: 195000837,
+        backups: true,
+        ipv6: true,
+        monitoring: true,
+        tags: ["cloned", "world"],
+      };
 
-    // Merge default config with provided config
-    const config = { ...defaultConfig, ...dropletConfig };
+      // Merge default config with provided config
+      const config = { ...defaultConfig, ...dropletConfig };
+      
+      console.log('Creating droplet with config:', {
+        name: config.name,
+        region: config.region,
+        size: config.size,
+        image: config.image,
+        token: this.token ? '***' : 'missing'
+      });
 
-    const response = await axios.post('https://api.digitalocean.com/v2/droplets', config, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`
-      }
-    });
+      const response = await axios.post('https://api.digitalocean.com/v2/droplets', config, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
 
-    return response.data;
+      console.log('Droplet creation response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('DigitalOcean API error:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+      throw error;
+    }
   }
   async getDropletInfo(dropletId) {
     const response = await axios.get(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
