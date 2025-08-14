@@ -59,11 +59,13 @@ router.post('/create-payment-intent', async (req, res) => {
 // Create Stripe Checkout session
 router.post('/create-checkout-session', async (req, res) => {
   try {
-    const { amount, currency = 'usd', success_url, cancel_url } = req.body;
+    const { amount, currency = 'usd', success_url, cancel_url, itemName, itemId } = req.body;
 
     if (!amount) {
       return res.status(400).json({ error: 'Amount is required' });
     }
+
+    // Note: amount should be in cents (e.g., 2999 for $29.99)
 
     // If Stripe is not configured, return a mock response for development
     if (!stripe) {
@@ -81,8 +83,8 @@ router.post('/create-checkout-session', async (req, res) => {
           price_data: {
             currency: currency,
             product_data: {
-              name: 'Edify Engine Premium Plan',
-              description: 'One month of unlimited access to our world engine',
+              name: itemName || 'Edify Engine Item',
+              description: `Purchase: ${itemName || 'Item'} (ID: ${itemId || 'unknown'})`,
             },
             unit_amount: amount,
           },
