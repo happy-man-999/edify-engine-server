@@ -370,21 +370,6 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
             priceMonthly: result.droplet.size.price_monthly,
             tags: result.droplet.tags || []
           });
-          
-          // Log droplet creation
-          try {
-            await LogService.logDropletCreated(req.user._id, result.droplet.id, {
-              name: result.droplet.name,
-              sizeSlug: result.droplet.size_slug,
-              regionSlug: result.droplet.region.slug,
-              ipAddress: result.droplet.networks?.v4?.[0]?.ip_address,
-              memory: result.droplet.memory,
-              vcpus: result.droplet.vcpus,
-              disk: result.droplet.disk
-            });
-          } catch (logError) {
-            console.error('Error logging droplet creation:', logError);
-          }
         } catch (error) {
           console.error('Error saving droplet to database:', error.message);
           // Don't fail the entire process if droplet save fails
