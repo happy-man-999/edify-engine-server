@@ -24,12 +24,19 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/edifyengi
 
 app.set('trust proxy', true);
 // Middleware
-/*app.use(cors({
+app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
-}));*/
+}));
 app.use(express.json());
 app.use(cookieParser());
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  //console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-session-secret',
   resave: false,
@@ -49,12 +56,30 @@ app.get('/api/hello', (req, res) => {
   res.json({ message: 'Hello from the server!' });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
+});
+
 app.use('/api/auth', auth);
 app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
 app.use('/api/signup-progress', signupProgress);
 app.use('/api/admin', admin);
 app.use('/api/items', items);
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: error.message,
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+  });
+});
 
 // Catch-all for React Router paths (must be after API routes)
 app.use((req, res, next) => {

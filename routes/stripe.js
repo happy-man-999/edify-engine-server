@@ -16,16 +16,55 @@ const transactionService = new TransactionService();
 const dropletService = new DropletService();
 
 let stripe = null;
+let lastStripeKey = null;
 
-try {
-  if (process.env.STRIPE_SECRET_KEY) {
-    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  } else {
-    console.log('Stripe secret key not found. Payment functionality will be disabled.');
+// Initialize Stripe with settings from MongoDB
+const initializeStripe = async () => {
+  try {
+    const settings = await Settings.getSettings();
+    if (settings.stripeSecretKey && settings.stripeSecretKey !== lastStripeKey) {
+      stripe = new Stripe(settings.stripeSecretKey);
+      lastStripeKey = settings.stripeSecretKey;
+    } else if (!settings.stripeSecretKey) {
+      console.log('Stripe secret key not found in settings. Payment functionality will be disabled.');
+    }
+  } catch (error) {
+    console.error('Error initializing Stripe from settings:', error);
   }
-} catch (error) {
-  console.log('Failed to initialize Stripe:', error.message);
-}
+};
+
+// Check and refresh Stripe instance if needed
+const ensureStripeInitialized = async () => {
+  try {    
+    // Test database connection first
+    try {
+      const settings = await Settings.getSettings();
+      
+      if (settings.stripeSecretKey !== lastStripeKey) {
+        await initializeStripe();
+      }
+    } catch (dbError) {
+      console.error('Database error when fetching settings:', dbError);
+      // If database fails, we can't initialize Stripe, but don't crash the route
+    }
+  } catch (error) {
+    console.error('Error ensuring Stripe is initialized:', error);
+    // Don't throw the error, just log it and continue
+    // This allows the route to fall back to mock mode
+  }
+};
+
+// Initialize Stripe on module load
+initializeStripe();
+
+// Test endpoint to verify the route is working
+router.get('/test', (req, res) => {
+  res.json({ 
+    message: 'Stripe route is working',
+    timestamp: new Date().toISOString(),
+    stripeConfigured: !!stripe
+  });
+});
 
 // Create payment intent
 router.post('/create-payment-intent', async (req, res) => {
@@ -36,9 +75,11 @@ router.post('/create-payment-intent', async (req, res) => {
       return res.status(400).json({ error: 'Amount is required' });
     }
 
+    // Ensure Stripe is initialized with latest settings
+    await ensureStripeInitialized();
+
     // If Stripe is not configured, return a mock response for development
     if (!stripe) {
-      console.log('Stripe not configured, returning mock payment intent');
       return res.json({
         clientSecret: 'mock_client_secret_for_development',
       });
@@ -64,18 +105,25 @@ router.post('/create-payment-intent', async (req, res) => {
 
 // Create Stripe Checkout session
 router.post('/create-checkout-session', async (req, res) => {
-  try {
+  try {   
     const { amount, currency = 'usd', success_url, cancel_url, itemName, itemId } = req.body;
 
     if (!amount) {
       return res.status(400).json({ error: 'Amount is required' });
     }
 
+    // Ensure Stripe is initialized with latest settings
+    try {
+      await ensureStripeInitialized();
+    } catch (stripeInitError) {
+      console.error('Error ensuring Stripe initialization:', stripeInitError);
+    }
+
     // Note: amount should be in cents (e.g., 2999 for $29.99)
+    console.log('Stripe instance status:', { hasStripe: !!stripe });
 
     // If Stripe is not configured, return a mock response for development
     if (!stripe) {
-      console.log('Stripe not configured, returning mock checkout session');
       return res.json({
         sessionId: 'mock_session_id_for_development',
       });
@@ -110,7 +158,9 @@ router.post('/create-checkout-session', async (req, res) => {
       sessionId: session.id,
     });
   } catch (error) {
+    console.error('=== Stripe Checkout Session Error ===');
     console.error('Error creating checkout session:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({ error: 'Failed to create checkout session' });
   }
 });
@@ -119,7 +169,6 @@ router.post('/create-checkout-session', async (req, res) => {
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   // If Stripe is not configured, return success for development
   if (!stripe) {
-    console.log('Stripe not configured, webhook ignored');
     return res.json({ received: true });
   }
 
@@ -193,6 +242,14 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     if (!sessionId) {
       return res.status(400).json({ error: 'Session ID is required' });
     }
+
+    const processedTransaction = await transactionService.getTransactionBySignature(sessionId)
+    if (processedTransaction) {
+      return res.status(400).json({ error: 'Transaction already processed' });
+    }
+
+    // Ensure Stripe is initialized with latest settings
+    await ensureStripeInitialized();
 
     // Retrieve the session from Stripe
     let session;
@@ -274,22 +331,19 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
           itemName: itemName
         });
       } else {
-        console.log('POST /payment-success - No signup progress found for user:', req.user._id);
         res.status(404).json({ error: 'No signup progress found' });
       }
     } else if (itemId === 'new-world') {
-      // Handle new world creation payment - similar to Solana route
-      console.log(`New world creation payment successful for user ${req.user._id}, amount: ${amount}`);
-      
+      // Handle new world creation payment - similar to Solana route      
       let dropletId;
-      
+      // Get settings from MongoDB
+      const settings = await Settings.getSettings();
+
       try {
-        // Get settings from MongoDB
-        const settings = await Settings.getSettings();
         
         const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
         const result = await digitalOceanService.createNewDroplet({
-          name: sessionId.slice(0, 6),
+          name: sessionId.slice(-6),
           image: settings.defaultSnapshotId
         });
 
@@ -338,12 +392,12 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
 
         // Assign subdomain
         try {
-          await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+sessionId.slice(0, 6));
+          await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+sessionId.slice(-6));
           
           // Log subdomain assignment
           try {
             await LogService.logSubdomainAssigned(req.user._id, {
-              subdomain: "new."+sessionId.slice(0, 6),
+              subdomain: "new."+sessionId.slice(-6),
               dropletId: dropletId
             });
           } catch (logError) {
@@ -397,12 +451,9 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         itemType: 'new-world',
         itemName: itemName,
         dropletId: dropletId,
-        domain: `new.${sessionId.slice(0, 6)}.${settings.defaultDnsDomain}`
+        domain: `new.${sessionId.slice(-6)}.${settings.defaultDnsDomain}`
       });
     } else if (itemId && itemId !== 'unknown') {
-      // Handle item purchase payment
-      console.log(`Item purchase payment successful for user ${req.user._id}, itemId: ${itemId}, amount: ${amount}`);
-      
       // Log successful item purchase
       try {
         await LogService.logPurchase(req.user._id, itemId, transaction._id, {

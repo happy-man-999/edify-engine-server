@@ -21,14 +21,6 @@ class DigitalOceanService {
 
       // Merge default config with provided config
       const config = { ...defaultConfig, ...dropletConfig };
-      
-      console.log('Creating droplet with config:', {
-        name: config.name,
-        region: config.region,
-        size: config.size,
-        image: config.image,
-        token: this.token ? '***' : 'missing'
-      });
 
       const response = await axios.post('https://api.digitalocean.com/v2/droplets', config, {
         headers: {
@@ -37,7 +29,6 @@ class DigitalOceanService {
         }
       });
 
-      console.log('Droplet creation response:', response.data);
       return response.data;
     } catch (error) {
       console.error('DigitalOcean API error:', {

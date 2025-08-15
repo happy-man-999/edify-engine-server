@@ -17,8 +17,12 @@ router.get('/test', (req, res) => {
 });
 
 router.post('/payment-success', async (req, res) => {
-  const { signature } = req.body;
-  if (signature) {
+  try {
+    const { signature } = req.body;
+    if (!signature) {
+      return res.status(400).json({ error: 'Signature is required' });
+    }
+
     const processedTransaction = await transactionService.getTransactionBySignature(signature)
     if (processedTransaction) {
       return res.status(400).json({ message: 'Transaction already processed' });
@@ -46,7 +50,18 @@ router.post('/payment-success', async (req, res) => {
 
     // Determine if this is a new-world creation or item purchase
     const isNewWorld = txInfo.itemId === 'new-world';
-    const isItemPurchase = txInfo.itemId && txInfo.itemId !== 'new-world' && txInfo.itemId !== 'premium-plan';
+    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'premium-plan';
+
+    // Validate required data
+    if (!txInfo.userId) {
+      console.error('Missing userId from transaction info');
+      return res.status(500).json({ error: 'Invalid transaction data - missing userId' });
+    }
+
+    if (!txInfo.amount || txInfo.amount <= 0) {
+      console.error('Invalid amount from transaction info:', txInfo.amount);
+      return res.status(500).json({ error: 'Invalid transaction data - invalid amount' });
+    }
 
     // Save transaction to MongoDB using transaction service
     let transaction;
@@ -58,7 +73,7 @@ router.post('/payment-success', async (req, res) => {
         paymentMethod: 'solana',
         status: 'success',
         date: new Date(),
-        item: isItemPurchase ? txInfo.itemId : null,
+        item: isItemPurchase ? txInfo.itemId : null, // null for new-world, itemId for purchases
         itemType: isNewWorld ? 'new-world' : 
                  isItemPurchase ? 'item-purchase' : 'other'
       });
@@ -87,10 +102,6 @@ router.post('/payment-success', async (req, res) => {
       try {
         // Get settings from MongoDB
         const settings = await Settings.getSettings();
-        console.log('Settings retrieved:', { 
-          defaultSnapshotId: settings.defaultSnapshotId, 
-          defaultDnsDomain: settings.defaultDnsDomain 
-        });
         
         // Validate snapshot ID
         if (!settings.defaultSnapshotId || isNaN(settings.defaultSnapshotId) || settings.defaultSnapshotId <= 0) {
@@ -106,13 +117,6 @@ router.post('/payment-success', async (req, res) => {
         
         const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
         
-        // Log droplet creation attempt
-        console.log('Attempting to create droplet with config:', {
-          name: signature.slice(0, 6),
-          image: settings.defaultSnapshotId,
-          token: process.env.DIGITAL_OCEAN_TOKEN ? '***' : 'missing'
-        });
-        
         // Validate droplet name format (DigitalOcean requirements)
         const dropletName = signature.slice(0, 6);
         if (!dropletName || dropletName.length < 3) {
@@ -124,8 +128,6 @@ router.post('/payment-success', async (req, res) => {
           name: dropletName,
           image: settings.defaultSnapshotId
         });
-
-        console.log('Droplet creation result:', result);
 
         if (!result.droplet || !result.droplet.id) {
           console.error('Droplet creation failed - no droplet ID returned:', result);
@@ -242,8 +244,11 @@ router.post('/payment-success', async (req, res) => {
         itemType: 'other'
       });
     }
-  } else {
-    return res.status(400).json({ error: 'Signature is required' });
+  } catch (error) {
+    console.error('Unexpected error in Solana payment success:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

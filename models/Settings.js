@@ -24,6 +24,23 @@ const settingsSchema = new mongoose.Schema({
   isTestMode: {
     type: Boolean,
     default: false
+  },
+  // Crypto wallet addresses
+  solanaWalletAddress: {
+    type: String,
+    required: true,
+    default: '11111111111111111111111111111111' // Default placeholder
+  },
+  // Stripe configuration
+  stripePublicKey: {
+    type: String,
+    required: true,
+    default: '' // Will be set from env or admin
+  },
+  stripeSecretKey: {
+    type: String,
+    required: true,
+    default: '' // Will be set from env or admin
   }
 }, {
   timestamps: true
@@ -33,7 +50,12 @@ const settingsSchema = new mongoose.Schema({
 settingsSchema.statics.getSettings = async function() {
   let settings = await this.findOne();
   if (!settings) {
-    settings = new this();
+    // Create new settings with environment variable values
+    settings = new this({
+      solanaWalletAddress: '11111111111111111111111111111111',
+      stripePublicKey: '',
+      stripeSecretKey: ''
+    });
     await settings.save();
   }
   return settings;

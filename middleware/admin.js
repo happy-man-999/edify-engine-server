@@ -3,10 +3,14 @@ import { authenticateToken } from './auth.js';
 export const requireAdmin = async (req, res, next) => {
   try {
     // First authenticate the token
-    await authenticateToken(req, res, (err) => {
-      if (err) {
-        return res.status(401).json({ message: 'Authentication required' });
-      }
+    await new Promise((resolve, reject) => {
+      authenticateToken(req, res, (err) => {
+        if (err) {
+          reject(new Error('Authentication required'));
+        } else {
+          resolve();
+        }
+      });
     });
 
     // Check if user has admin role
@@ -19,20 +23,26 @@ export const requireAdmin = async (req, res, next) => {
 
     next();
   } catch (error) {
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: 'ADMIN_MIDDLEWARE_ERROR'
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        message: 'Internal server error',
+        error: 'ADMIN_MIDDLEWARE_ERROR'
+      });
+    }
   }
 };
 
 export const optionalAdmin = async (req, res, next) => {
   try {
     // First authenticate the token
-    await authenticateToken(req, res, (err) => {
-      if (err) {
-        return res.status(401).json({ message: 'Authentication required' });
-      }
+    await new Promise((resolve, reject) => {
+      authenticateToken(req, res, (err) => {
+        if (err) {
+          reject(new Error('Authentication required'));
+        } else {
+          resolve();
+        }
+      });
     });
 
     // Check if user has admin role (optional - doesn't block if not admin)
@@ -44,9 +54,11 @@ export const optionalAdmin = async (req, res, next) => {
 
     next();
   } catch (error) {
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: 'ADMIN_MIDDLEWARE_ERROR'
-    });
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        message: 'Internal server error',
+        error: 'ADMIN_MIDDLEWARE_ERROR'
+      });
+    }
   }
 }; 

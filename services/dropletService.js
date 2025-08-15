@@ -84,9 +84,6 @@ class DropletService {
         sortOrder = 'desc'
       } = filters;
 
-      // Debug: Log the filters being received
-      console.log('DropletService received filters:', filters);
-
       // Build query
       const query = {};
       
@@ -121,7 +118,6 @@ class DropletService {
         if (createdAtFrom) {
           // Ensure proper date formatting
           const fromDate = new Date(createdAtFrom);
-          console.log('Processing createdAtFrom:', createdAtFrom, '->', fromDate, 'Valid:', !isNaN(fromDate.getTime()), 'ISO:', fromDate.toISOString());
           if (!isNaN(fromDate.getTime())) {
             query.createdAt.$gte = fromDate;
           }
@@ -129,16 +125,12 @@ class DropletService {
         if (createdAtTo) {
           // Ensure proper date formatting and set to end of day
           const toDate = new Date(createdAtTo);
-          console.log('Processing createdAtTo:', createdAtTo, '->', toDate, 'Valid:', !isNaN(toDate.getTime()), 'ISO:', toDate.toISOString());
           if (!isNaN(toDate.getTime())) {
             toDate.setHours(23, 59, 59, 999);
             query.createdAt.$lte = toDate;
           }
         }
       }
-
-      // Debug: Log the built query
-      console.log('Built query:', JSON.stringify(query, null, 2));
       
       if (search) {
         // Search in droplet fields and user names
@@ -220,8 +212,6 @@ class DropletService {
           }
         ];
 
-        console.log('Aggregation pipeline:', JSON.stringify(aggregationPipeline, null, 2));
-
         // Get total count for pagination
         const countPipeline = [
           {
@@ -262,8 +252,6 @@ class DropletService {
         // Execute main aggregation
         const droplets = await Droplet.aggregate(aggregationPipeline);
 
-        console.log(`Found ${droplets.length} droplets with aggregation pipeline`);
-
         // Transform data for frontend
         const transformedDroplets = droplets.map(droplet => ({
           id: droplet.dropletId,
@@ -293,11 +281,7 @@ class DropletService {
             pages: Math.ceil(total / parseInt(limit))
           }
         };
-      } else {
-        // No search term - use regular query for better performance
-        
-        console.log('Using regular query (no search):', JSON.stringify(query, null, 2));
-        
+      } else {        
         // Build sort object
         const sort = {};
         sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
@@ -315,8 +299,6 @@ class DropletService {
           .sort(sort)
           .skip(skip)
           .limit(parseInt(limit));
-
-        console.log(`Found ${droplets.length} droplets with regular query`);
 
         // Transform data for frontend
         const transformedDroplets = droplets.map(droplet => ({

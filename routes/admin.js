@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/admin.js';
+import { authenticateToken } from '../middleware/auth.js';
 import User from '../models/User.js';
 import Settings from '../models/Settings.js';
 import TransactionService from '../services/transactionService.js';
@@ -11,17 +12,58 @@ const dropletService = new DropletService();
 
 const router = express.Router();
 
-// Apply admin middleware to all routes
+// Get current settings (requires user authentication, not admin)
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    res.json({ settings });
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch settings',
+      error: error.message 
+    });
+  }
+});
+
+// Apply admin middleware to all other routes
 router.use(requireAdmin);
 
 // Error handling middleware for admin routes
-router.use((error, req, res, next) => {
+const handleAdminError = (error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+  
   console.error('Admin route error:', error);
-  res.status(500).json({ 
-    message: 'Internal server error in admin routes',
+  
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({ 
+      message: 'Validation error',
+      error: error.message 
+    });
+  }
+  
+  if (error.name === 'CastError') {
+    return res.status(400).json({ 
+      message: 'Invalid data format',
+      error: error.message 
+    });
+  }
+  
+  if (error.code === 'ERR_HTTP_HEADERS_SENT') {
+    console.error('Headers already sent error - skipping response');
+    return;
+  }
+  
+  return res.status(500).json({ 
+    message: 'Internal server error',
     error: error.message 
   });
-});
+};
+
+// Apply error handling middleware to all admin routes
+router.use(handleAdminError);
 
 // Test route to verify admin access
 router.get('/test', (req, res) => {
@@ -801,24 +843,19 @@ router.get('/logs/export', async (req, res) => {
 
 // ===== SETTINGS ROUTES =====
 
-// Get current settings
-router.get('/settings', async (req, res) => {
-  try {
-    const settings = await Settings.getSettings();
-    res.json({ settings });
-  } catch (error) {
-    console.error('Error fetching settings:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch settings',
-      error: error.message 
-    });
-  }
-});
-
 // Update settings
 router.put('/settings', async (req, res) => {
   try {
-    const { defaultSnapshotId, defaultDnsDomain, stripeMode, solanaMode, isTestMode } = req.body;
+    const { 
+      defaultSnapshotId, 
+      defaultDnsDomain, 
+      stripeMode, 
+      solanaMode, 
+      isTestMode,
+      solanaWalletAddress,
+      stripePublicKey,
+      stripeSecretKey
+    } = req.body;
 
     // Validate required fields
     if (defaultSnapshotId === undefined || defaultDnsDomain === undefined) {
@@ -856,6 +893,26 @@ router.put('/settings', async (req, res) => {
       });
     }
 
+    // Validate Solana wallet address format (basic validation)
+    if (solanaWalletAddress && solanaWalletAddress.length !== 44) {
+      return res.status(400).json({ 
+        message: 'Invalid Solana wallet address format. Must be 44 characters long.' 
+      });
+    }
+
+    // Validate Stripe keys (basic validation)
+    if (stripePublicKey && !stripePublicKey.startsWith('pk_')) {
+      return res.status(400).json({ 
+        message: 'Invalid Stripe public key format. Must start with "pk_".' 
+      });
+    }
+
+    if (stripeSecretKey && !stripeSecretKey.startsWith('sk_')) {
+      return res.status(400).json({ 
+        message: 'Invalid Stripe secret key format. Must start with "sk_".' 
+      });
+    }
+
     // Get current settings
     const currentSettings = await Settings.getSettings();
     
@@ -865,7 +922,10 @@ router.put('/settings', async (req, res) => {
       defaultDnsDomain,
       stripeMode: stripeMode || 'live',
       solanaMode: solanaMode || 'mainnet',
-      isTestMode: Boolean(isTestMode)
+      isTestMode: Boolean(isTestMode),
+      solanaWalletAddress: solanaWalletAddress || currentSettings.solanaWalletAddress,
+      stripePublicKey: stripePublicKey || currentSettings.stripePublicKey,
+      stripeSecretKey: stripeSecretKey || currentSettings.stripeSecretKey
     };
 
     // Update settings
@@ -893,6 +953,15 @@ router.put('/settings', async (req, res) => {
       if (currentSettings.isTestMode !== updatedSettings.isTestMode) {
         changes.isTestMode = { old: currentSettings.isTestMode, new: updatedSettings.isTestMode };
       }
+      if (currentSettings.solanaWalletAddress !== updatedSettings.solanaWalletAddress) {
+        changes.solanaWalletAddress = { old: currentSettings.solanaWalletAddress, new: updatedSettings.solanaWalletAddress };
+      }
+      if (currentSettings.stripePublicKey !== updatedSettings.stripePublicKey) {
+        changes.stripePublicKey = { old: currentSettings.stripePublicKey, new: updatedSettings.stripePublicKey };
+      }
+      if (currentSettings.stripeSecretKey !== updatedSettings.stripeSecretKey) {
+        changes.stripeSecretKey = { old: currentSettings.stripeSecretKey, new: updatedSettings.stripeSecretKey };
+      }
 
       await LogService.logSettingsUpdated(req.user._id, changes);
     } catch (logError) {
@@ -907,6 +976,24 @@ router.put('/settings', async (req, res) => {
     console.error('Error updating settings:', error);
     res.status(500).json({ 
       message: 'Failed to update settings',
+      error: error.message 
+    });
+  }
+});
+
+// Refresh Stripe instance (for when settings are updated)
+router.post('/refresh-stripe', async (req, res) => {
+  try {
+    // This endpoint will be called by the frontend to refresh Stripe
+    // The actual refresh logic is handled in the Stripe route
+    res.json({ 
+      message: 'Stripe refresh request received',
+      note: 'Stripe instance will be refreshed on next request'
+    });
+  } catch (error) {
+    console.error('Error handling Stripe refresh request:', error);
+    res.status(500).json({ 
+      message: 'Failed to process Stripe refresh request',
       error: error.message 
     });
   }

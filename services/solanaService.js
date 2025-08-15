@@ -33,8 +33,21 @@ class SolanaService {
 
       const memoLog = txInfo.meta.logMessages.find(log => log.startsWith("Program log: Memo"));
       const memo = memoLog?.match(/"(.+?)"/)?.[1]; // Extract the memo string in quotes
-      const userId = memo.split("-")[0];
-      const itemId = memo.split("-")[1];
+      
+      // Parse memo more robustly - handle cases where userId might contain hyphens
+      let userId, itemId;
+      if (memo) {
+        // Split on the last hyphen to get userId and itemId
+        const lastHyphenIndex = memo.lastIndexOf('*');
+        if (lastHyphenIndex !== -1) {
+          userId = memo.substring(0, lastHyphenIndex);
+          itemId = memo.substring(lastHyphenIndex + 1);
+        } else {
+          // No hyphens found, treat entire memo as userId
+          userId = memo;
+          itemId = null;
+        }
+      }
 
       return {
         sender,
