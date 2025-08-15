@@ -355,6 +355,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         // Save droplet information to database
         let droplet;
         try {
+          const subdomain = "new."+sessionId.slice(-6);
           droplet = await dropletService.createDroplet({
             dropletId: result.droplet.id,
             name: result.droplet.name,
@@ -368,7 +369,8 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
             vcpus: result.droplet.vcpus,
             disk: result.droplet.disk,
             priceMonthly: result.droplet.size.price_monthly,
-            tags: result.droplet.tags || []
+            tags: result.droplet.tags || [],
+            subdomain: subdomain
           });
         } catch (error) {
           console.error('Error saving droplet to database:', error.message);

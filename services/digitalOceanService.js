@@ -81,6 +81,62 @@ class DigitalOceanService {
 
     return response.data;
   }
+
+  async removeSubdomain(domain, subdomain) {
+    try {
+      // First, get all records for the domain to find the subdomain record
+      const response = await axios.get(`https://api.digitalocean.com/v2/domains/${domain}/records`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
+
+      // Find the record with the matching subdomain name
+      const record = response.data.domain_records.find(record => record.name === subdomain);
+      
+      if (record) {
+        // Delete the found record
+        await axios.delete(`https://api.digitalocean.com/v2/domains/${domain}/records/${record.id}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.token}`
+          }
+        });
+        
+        return { success: true, message: `Subdomain ${subdomain} removed successfully` };
+      } else {
+        return { success: false, message: `Subdomain ${subdomain} not found` };
+      }
+    } catch (error) {
+      console.error('Error removing subdomain:', error.message);
+      return { success: false, message: `Failed to remove subdomain: ${error.message}` };
+    }
+  }
+
+  async getSubdomains(domain) {
+    try {
+      const response = await axios.get(`https://api.digitalocean.com/v2/domains/${domain}/records`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
+
+      return {
+        success: true,
+        subdomains: response.data.domain_records.map(record => ({
+          id: record.id,
+          name: record.name,
+          type: record.type,
+          data: record.data
+        }))
+      };
+    } catch (error) {
+      console.error('Error getting subdomains:', error.message);
+      return { success: false, message: `Failed to get subdomains: ${error.message}` };
+    }
+  }
   async powerOnDroplet(dropletId) {
     const response = await axios.post(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
       type: 'power_on'

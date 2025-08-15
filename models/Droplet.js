@@ -60,7 +60,11 @@ const dropletSchema = new mongoose.Schema({
   },
   tags: [{
     type: String
-  }]
+  }],
+  subdomain: {
+    type: String,
+    required: false
+  }
 }, {
   timestamps: true
 });

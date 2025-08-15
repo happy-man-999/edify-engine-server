@@ -1,6 +1,7 @@
 import Droplet from '../models/Droplet.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
+import Settings from '../models/Settings.js';
 import DigitalOceanService from './digitalOceanService.js';
 import LogService from './logService.js';
 import mongoose from 'mongoose';
@@ -27,7 +28,8 @@ class DropletService {
         vcpus: dropletData.vcpus,
         disk: dropletData.disk,
         priceMonthly: dropletData.priceMonthly,
-        tags: dropletData.tags || []
+        tags: dropletData.tags || [],
+        subdomain: dropletData.subdomain
       });
       
       await droplet.save();
@@ -587,6 +589,30 @@ class DropletService {
       }
 
       const previousStatus = droplet.status;
+
+      // Remove subdomain if it exists
+      if (droplet.subdomain) {
+        try {
+          console.log(`Attempting to remove subdomain ${droplet.subdomain} for droplet ${dropletId}`);
+          const settings = await Settings.findOne();
+          
+          if (settings && settings.defaultDnsDomain) {
+            const result = await this.digitalOceanService.removeSubdomain(settings.defaultDnsDomain, droplet.subdomain);
+            if (result.success) {
+              console.log(`Subdomain ${droplet.subdomain} removed successfully for droplet ${dropletId}`);
+            } else {
+              console.warn(`Subdomain removal warning for droplet ${dropletId}: ${result.message}`);
+            }
+          } else {
+            console.warn(`No default DNS domain found in settings, skipping subdomain removal for droplet ${dropletId}`);
+          }
+        } catch (subdomainError) {
+          console.error(`Error removing subdomain for droplet ${dropletId}:`, subdomainError.message);
+          // Don't fail the entire process if subdomain removal fails
+        }
+      } else {
+        console.log(`No subdomain found for droplet ${dropletId}, skipping subdomain removal`);
+      }
 
       // Delete via DigitalOcean
       await this.digitalOceanService.deleteDroplet(dropletId);
