@@ -26,6 +26,26 @@ router.get('/settings', async (req, res) => {
   }
 });
 
+// Public endpoint for payment settings (no authentication required)
+router.get('/payment-settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    // Only return payment-related settings for security
+    res.json({
+      stripeMode: settings.stripeMode,
+      solanaMode: settings.solanaMode,
+      isTestMode: settings.isTestMode,
+      stripePublicKey: settings.stripePublicKey
+    });
+  } catch (error) {
+    console.error('Error fetching payment settings:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch payment settings',
+      error: error.message 
+    });
+  }
+});
+
 // Apply admin middleware to all other routes
 router.use(requireAdmin);
 
@@ -75,6 +95,41 @@ router.get('/test', (req, res) => {
       role: req.user.role
     }
   });
+});
+
+// Test endpoint to verify current operational mode
+router.get('/test-mode-status', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    
+    // Import services to get current status
+    const { default: SolanaService } = await import('../services/solanaService.js');
+    const solanaService = new SolanaService();
+    const currentNetwork = await solanaService.getCurrentNetwork();
+    
+    res.json({
+      message: 'Current operational mode status',
+      settings: {
+        isTestMode: settings.isTestMode,
+        stripeMode: settings.stripeMode,
+        solanaMode: settings.solanaMode,
+        effectiveStripeMode: settings.isTestMode ? 'test' : settings.stripeMode,
+        effectiveSolanaMode: settings.isTestMode ? 'devnet' : settings.solanaMode
+      },
+      currentStatus: {
+        solanaNetwork: currentNetwork,
+        stripeConfigured: true, // Will be updated when we add Stripe status check
+        timestamp: new Date().toISOString()
+      },
+      note: 'This endpoint shows the current operational mode and how it affects the services'
+    });
+  } catch (error) {
+    console.error('Error getting test mode status:', error);
+    res.status(500).json({ 
+      message: 'Failed to get test mode status',
+      error: error.message 
+    });
+  }
 });
 
 // Get all users with pagination and filtering
@@ -994,6 +1049,46 @@ router.post('/refresh-stripe', async (req, res) => {
     console.error('Error handling Stripe refresh request:', error);
     res.status(500).json({ 
       message: 'Failed to process Stripe refresh request',
+      error: error.message 
+    });
+  }
+});
+
+// Refresh all services (for when settings are updated)
+router.post('/refresh-services', async (req, res) => {
+  try {
+    // Get current settings to log what we're refreshing
+    const settings = await Settings.getSettings();
+    
+    console.log('Refreshing all services with new settings:', {
+      isTestMode: settings.isTestMode,
+      stripeMode: settings.stripeMode,
+      solanaMode: settings.solanaMode
+    });
+
+    // Import services dynamically to avoid circular dependencies
+    const { default: SolanaService } = await import('../services/solanaService.js');
+    
+    // Refresh Solana service
+    const solanaService = new SolanaService();
+    await solanaService.refreshConnection();
+    
+    // Note: Stripe service will refresh automatically on next request
+    // due to the ensureStripeInitialized() call in each route
+    
+    res.json({ 
+      message: 'All services refreshed successfully',
+      settings: {
+        isTestMode: settings.isTestMode,
+        stripeMode: settings.stripeMode,
+        solanaMode: settings.solanaMode
+      },
+      note: 'Stripe will refresh on next payment request'
+    });
+  } catch (error) {
+    console.error('Error refreshing services:', error);
+    res.status(500).json({ 
+      message: 'Failed to refresh services',
       error: error.message 
     });
   }

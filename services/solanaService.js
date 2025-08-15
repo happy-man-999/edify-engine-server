@@ -1,13 +1,96 @@
 import { Connection, clusterApiUrl } from '@solana/web3.js';
+import Settings from '../models/Settings.js';
 
 class SolanaService {
-  constructor(network = 'devnet') {
-    this.connection = new Connection(clusterApiUrl(network), 'confirmed');
+  constructor(network = null) {
+    this.network = network;
+    this.connection = null;
+    this.lastSettingsHash = null;
+  }
+
+  // Generate a hash of current settings to detect changes
+  async getSettingsHash() {
+    try {
+      const settings = await Settings.getSettings();
+      return `${settings.solanaMode}-${settings.isTestMode}`;
+    } catch (error) {
+      console.error('Error getting settings hash:', error);
+      return null;
+    }
+  }
+
+  async initializeConnection() {
+    try {
+      const settings = await Settings.getSettings();
+      
+      // Determine network based on settings
+      let targetNetwork = this.network;
+      if (!targetNetwork) {
+        // If test mode is enabled, force devnet
+        if (settings.isTestMode) {
+          targetNetwork = 'devnet';
+        } else {
+          targetNetwork = settings.solanaMode;
+        }
+      }
+      
+      // If network changed, reset connection
+      if (this.network !== targetNetwork) {
+        this.network = targetNetwork;
+        this.connection = null;
+      }
+      
+      if (!this.connection) {
+        const endpoint = this.network === 'mainnet' 
+          ? 'https://api.mainnet-beta.solana.com'
+          : 'https://api.devnet.solana.com';
+        
+        this.connection = new Connection(endpoint, 'confirmed');
+        console.log(`Solana connection initialized for ${this.network.toUpperCase()}`);
+      }
+      
+      return this.connection;
+    } catch (error) {
+      console.error('Error initializing Solana connection:', error);
+      // Fallback to devnet if settings fail
+      this.network = 'devnet';
+      this.connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+      return this.connection;
+    }
+  }
+
+  async getConnection() {
+    // Check if settings have changed and refresh if needed
+    const currentHash = await this.getSettingsHash();
+    if (currentHash !== this.lastSettingsHash) {
+      this.lastSettingsHash = currentHash;
+      this.connection = null; // Force reconnection
+      console.log('Solana settings changed, refreshing connection...');
+    }
+    
+    if (!this.connection) {
+      await this.initializeConnection();
+    }
+    return this.connection;
+  }
+
+  // Get current network mode for debugging
+  async getCurrentNetwork() {
+    await this.getConnection();
+    return this.network;
+  }
+
+  // Force refresh connection (useful for admin settings changes)
+  async refreshConnection() {
+    this.connection = null;
+    this.lastSettingsHash = null;
+    return await this.initializeConnection();
   }
 
   async getTransactionInfo(signature) {
     try {
-      const txInfo = await this.connection.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
+      const connection = await this.getConnection();
+      const txInfo = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 0 });
 
       const accountKeys = txInfo.transaction.message.accountKeys.map(k => k.toString());
 

@@ -22,9 +22,34 @@ let lastStripeKey = null;
 const initializeStripe = async () => {
   try {
     const settings = await Settings.getSettings();
+    
+    // Check if we should use test mode based on settings
+    const isTestMode = settings.isTestMode || settings.stripeMode === 'test';
+    
     if (settings.stripeSecretKey && settings.stripeSecretKey !== lastStripeKey) {
-      stripe = new Stripe(settings.stripeSecretKey);
-      lastStripeKey = settings.stripeSecretKey;
+      let secretKey = settings.stripeSecretKey;
+      
+      // If test mode is enabled, ensure we're using test keys
+      if (isTestMode) {
+        if (secretKey.startsWith('sk_live_')) {
+          // Convert live key to test key format
+          secretKey = secretKey.replace('sk_live_', 'sk_test_');
+        }
+        // If it's already a test key, use it as is
+      } else {
+        // Live mode - ensure we're using live keys
+        if (secretKey.startsWith('sk_test_')) {
+          // Convert test key to live key format
+          secretKey = secretKey.replace('sk_test_', 'sk_live_');
+        }
+        // If it's already a live key, use it as is
+      }
+      
+      stripe = new Stripe(secretKey);
+      lastStripeKey = secretKey;
+      
+      console.log(`Stripe initialized in ${isTestMode ? 'TEST' : 'LIVE'} mode`);
+      console.log(`Using key: ${secretKey.substring(0, 10)}...`);
     } else if (!settings.stripeSecretKey) {
       console.log('Stripe secret key not found in settings. Payment functionality will be disabled.');
     }
@@ -40,7 +65,12 @@ const ensureStripeInitialized = async () => {
     try {
       const settings = await Settings.getSettings();
       
-      if (settings.stripeSecretKey !== lastStripeKey) {
+      // Check if we need to refresh based on test mode or key changes
+      const isTestMode = settings.isTestMode || settings.stripeMode === 'test';
+      const currentTestMode = lastStripeKey ? lastStripeKey.startsWith('sk_test_') : false;
+      
+      if (settings.stripeSecretKey !== lastStripeKey || isTestMode !== currentTestMode) {
+        console.log('Stripe settings changed, refreshing instance...');
         await initializeStripe();
       }
     } catch (dbError) {
@@ -235,6 +265,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 });
 
 // Payment success webhook
+const tempHeap = {};
 router.post('/payment-success', authenticateToken, async (req, res) => {
   try {
     const { sessionId } = req.body;
@@ -246,6 +277,13 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     const processedTransaction = await transactionService.getTransactionBySignature(sessionId)
     if (processedTransaction) {
       return res.status(400).json({ error: 'Transaction already processed' });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      if (tempHeap[sessionId]) {
+        return res.status(200).json({ success: true });
+      }
+      tempHeap[sessionId] = true;
     }
 
     // Ensure Stripe is initialized with latest settings
