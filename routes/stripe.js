@@ -8,6 +8,7 @@ import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import Settings from '../models/Settings.js';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -372,111 +373,43 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         res.status(404).json({ error: 'No signup progress found' });
       }
     } else if (itemId === 'new-world') {
-      // Handle new world creation payment - similar to Solana route      
-      let dropletId;
-      // Get settings from MongoDB
+      // Handle new world creation payment - return immediately and process in background
       const settings = await Settings.getSettings();
-
-      try {
-        
-        const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
-        const result = await digitalOceanService.createNewDroplet({
-          name: sessionId.slice(-6),
-          image: settings.defaultSnapshotId
-        });
-
-        if (!result.droplet || !result.droplet.id) {
-          return res.status(500).json({ error: 'Failed to create droplet' });
-        }
-        dropletId = result.droplet.id;
-
-        // Save droplet information to database
-        let droplet;
-        try {
-          const subdomain = "new."+sessionId.slice(-6);
-          droplet = await dropletService.createDroplet({
-            dropletId: result.droplet.id,
-            name: result.droplet.name,
-            sizeSlug: result.droplet.size_slug,
-            regionSlug: result.droplet.region.slug,
-            status: result.droplet.status,
-            createdAt: new Date(result.droplet.created_at),
-            user: req.user._id,
-            transaction: transaction._id,
-            memory: result.droplet.memory,
-            vcpus: result.droplet.vcpus,
-            disk: result.droplet.disk,
-            priceMonthly: result.droplet.size.price_monthly,
-            tags: result.droplet.tags || [],
-            subdomain: subdomain
-          });
-        } catch (error) {
-          console.error('Error saving droplet to database:', error.message);
-          // Don't fail the entire process if droplet save fails
-        }
-
-        // Assign subdomain
-        try {
-          await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+sessionId.slice(-6));
-          
-          // Log subdomain assignment
-          try {
-            await LogService.logSubdomainAssigned(req.user._id, {
-              subdomain: "new."+sessionId.slice(-6),
-              dropletId: dropletId
-            });
-          } catch (logError) {
-            console.error('Error logging subdomain assignment:', logError);
-          }
-        } catch (error) {
-          console.error('Error assigning subdomain:', error.message);
-          return res.status(500).json({ error: 'Failed to assign subdomain' });
-        }
-
-        // Power on droplet
-        try {
-          await digitalOceanService.powerOnDroplet(dropletId);
-        } catch (error) {
-          console.error('Error running droplet:', error.message);
-          return res.status(500).json({ error: 'Failed to run droplet' });
-        }
-        
-      } catch (error) {
-        console.error('Error creating droplet:', error.message);
-        // Log error
-        try {
-          await LogService.logError({
-            message: 'Failed to create droplet',
-            error: error.message,
-            context: 'droplet_creation',
-            userId: req.user._id
-          });
-        } catch (logError) {
-          console.error('Error logging error:', logError);
-        }
-        return res.status(500).json({ error: 'Failed to create droplet' });
-      }
       
-      // Log successful new world payment
+      // Log new world creation payment
       try {
-        await LogService.logPurchase(req.user._id, null, transaction._id, {
-          itemName: 'New World Creation',
-          amount: amount,
-          paymentMethod: 'stripe',
-          signature: sessionId,
-          currency: currency
+        await LogService.createLog({
+          level: 'success',
+          type: 'purchase',
+          message: `User purchased new world creation`,
+          details: {
+            itemName: 'New World Creation',
+            amount: amount,
+            paymentMethod: 'stripe',
+            signature: sessionId
+          },
+          status: 'completed',
+          userId: req.user._id,
+          transactionId: transaction._id,
+          metadata: {
+            currency: currency,
+            itemType: 'new-world'
+          }
         });
       } catch (logError) {
-        console.error('Error logging purchase:', logError);
+        console.error('Error logging new world creation:', logError);
       }
+      
+      // Start background processing
+      processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, settings);
       
       res.json({ 
         success: true, 
-        message: 'New world creation payment completed and droplet created',
+        message: 'Payment confirmed! Your new world is being created in the background.',
         itemType: 'new-world',
         itemName: itemName,
-        dropletId: dropletId,
-        domain: `new.${sessionId.slice(-6)}.${settings.defaultDnsDomain}`
+        processing: true,
+        transactionId: transaction._id
       });
     } else if (itemId && itemId !== 'unknown') {
       // Log successful item purchase
@@ -508,6 +441,164 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     console.error('Payment success error:', error);
     res.status(500).json({ error: 'Failed to update payment status' });
   }
+});
+
+// Background processing function for new world creation
+async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, settings) {
+  try {
+    console.log(`Starting background processing for new world creation: ${sessionId}`);
+    
+    let dropletId;
+    const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
+    
+    // Create droplet
+    const result = await digitalOceanService.createNewDroplet({
+      name: sessionId.slice(-6),
+      image: settings.defaultSnapshotId
+    });
+
+    if (!result.droplet || !result.droplet.id) {
+      throw new Error('Failed to create droplet');
+    }
+    dropletId = result.droplet.id;
+
+    // Save droplet information to database
+    let droplet;
+    try {
+      const subdomain = "new."+sessionId.slice(-6);
+      droplet = await dropletService.createDroplet({
+        dropletId: result.droplet.id,
+        name: result.droplet.name,
+        sizeSlug: result.droplet.size_slug,
+        regionSlug: result.droplet.region.slug,
+        status: result.droplet.status,
+        createdAt: new Date(result.droplet.created_at),
+        user: userId,
+        transaction: transactionId,
+        memory: result.droplet.memory,
+        vcpus: result.droplet.vcpus,
+        disk: result.droplet.disk,
+        priceMonthly: result.droplet.size.price_monthly,
+        tags: result.droplet.tags || [],
+        subdomain: subdomain
+      });
+    } catch (error) {
+      console.error('Error saving droplet to database:', error.message);
+    }
+
+    // Assign subdomain
+    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+sessionId.slice(-6));
+    
+    // Log subdomain assignment
+    try {
+      await LogService.logSubdomainAssigned(userId, {
+        subdomain: "new."+sessionId.slice(-6),
+        dropletId: dropletId
+      });
+    } catch (logError) {
+      console.error('Error logging subdomain assignment:', logError);
+    }
+
+    // Power on droplet
+    await digitalOceanService.powerOnDroplet(dropletId);
+    
+    console.log(`Background processing completed for new world creation: ${sessionId}`);
+    
+    // Emit webhook event for frontend
+    emitWebhookEvent(userId, 'new-world-created', {
+      sessionId,
+      dropletId,
+      domain: `new.${sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
+      status: 'completed'
+    });
+    
+  } catch (error) {
+    console.error('Background processing error for new world creation:', error);
+    
+    // Log error
+    try {
+      await LogService.logError({
+        message: 'Failed to create droplet in background',
+        error: error.message,
+        context: 'background_droplet_creation',
+        userId: userId
+      });
+    } catch (logError) {
+      console.error('Error logging error:', logError);
+    }
+    
+    // Emit webhook event for frontend with error
+    emitWebhookEvent(userId, 'new-world-creation-failed', {
+      sessionId,
+      error: error.message,
+      status: 'failed'
+    });
+  }
+}
+
+// Webhook event emitter for frontend
+const webhookClients = new Map();
+
+function emitWebhookEvent(userId, eventType, data) {
+  const client = webhookClients.get(userId);
+  if (client) {
+    client.write(`data: ${JSON.stringify({ type: eventType, data })}\n\n`);
+  }
+}
+
+// SSE endpoint for frontend webhooks
+router.get('/webhook-stream/:userId', async (req, res) => {
+  const { userId } = req.params;
+  const { token } = req.query;
+  
+  // Verify token from query parameter
+  if (!token) {
+    return res.status(401).json({ error: 'No authorization token provided' });
+  }
+  
+  // For development, accept any token
+  if (process.env.NODE_ENV === 'development') {
+    // Accept any token in development
+  } else {
+    // In production, verify the JWT token properly
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (decoded.userId !== userId) {
+        return res.status(403).json({ error: 'Unauthorized access to webhook stream' });
+      }
+    } catch (jwtError) {
+      return res.status(403).json({ error: 'Invalid authorization token' });
+    }
+  }
+  
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+  
+  // Store client connection
+  webhookClients.set(userId, res);
+  
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', data: { message: 'Webhook stream connected' } })}\n\n`);
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    webhookClients.delete(userId);
+    console.log(`Webhook client disconnected for user: ${userId}`);
+  });
+  
+  // Keep connection alive
+  const keepAlive = setInterval(() => {
+    res.write(`data: ${JSON.stringify({ type: 'ping', data: { timestamp: Date.now() } })}\n\n`);
+  }, 30000);
+  
+  req.on('close', () => {
+    clearInterval(keepAlive);
+  });
 });
 
 export default router; 
