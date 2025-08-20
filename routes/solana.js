@@ -6,6 +6,7 @@ import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
+import settingsRefreshService from '../services/settingsRefreshService.js';
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
@@ -32,6 +33,8 @@ router.post('/payment-success', async (req, res) => {
     let txInfo;
     try {
       const solanaService = new SolanaService();
+      // Register this service instance for auto-refresh
+      settingsRefreshService.registerSolanaService(`payment-${Date.now()}`, solanaService);
       txInfo = await solanaService.getTransactionInfo(signature);
     } catch (error) {
       console.error('Error fetching transaction info:', error.message);

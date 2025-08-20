@@ -6,6 +6,8 @@ import Settings from '../models/Settings.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
+import settingsRefreshService from '../services/settingsRefreshService.js';
+import stripeService from '../services/stripeService.js';
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
@@ -97,15 +99,30 @@ router.get('/test', (req, res) => {
   });
 });
 
+// Get services status
+router.get('/services-status', async (req, res) => {
+  try {
+    const servicesStatus = await settingsRefreshService.getServicesStatus();
+    res.json({ 
+      message: 'Services status retrieved successfully',
+      servicesStatus: servicesStatus
+    });
+  } catch (error) {
+    console.error('Error getting services status:', error);
+    res.status(500).json({ 
+      message: 'Failed to get services status',
+      error: error.message 
+    });
+  }
+});
+
 // Test endpoint to verify current operational mode
 router.get('/test-mode-status', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
     
-    // Import services to get current status
-    const { default: SolanaService } = await import('../services/solanaService.js');
-    const solanaService = new SolanaService();
-    const currentNetwork = await solanaService.getCurrentNetwork();
+    // Get services status
+    const servicesStatus = await settingsRefreshService.getServicesStatus();
     
     res.json({
       message: 'Current operational mode status',
@@ -117,8 +134,7 @@ router.get('/test-mode-status', async (req, res) => {
         effectiveSolanaMode: settings.isTestMode ? 'devnet' : settings.solanaMode
       },
       currentStatus: {
-        solanaNetwork: currentNetwork,
-        stripeConfigured: true, // Will be updated when we add Stripe status check
+        servicesStatus: servicesStatus,
         timestamp: new Date().toISOString()
       },
       note: 'This endpoint shows the current operational mode and how it affects the services'
@@ -1023,6 +1039,16 @@ router.put('/settings', async (req, res) => {
       console.error('Error logging settings update:', logError);
     }
 
+    // Refresh all services with new settings
+    try {
+      console.log('Refreshing all services with new settings...');
+      await settingsRefreshService.refreshAllServices();
+      console.log('Services refreshed successfully');
+    } catch (refreshError) {
+      console.error('Error refreshing services:', refreshError);
+      // Don't fail the request if service refresh fails
+    }
+
     res.json({ 
       message: 'Settings updated successfully',
       settings: updatedSettings 
@@ -1039,16 +1065,14 @@ router.put('/settings', async (req, res) => {
 // Refresh Stripe instance (for when settings are updated)
 router.post('/refresh-stripe', async (req, res) => {
   try {
-    // This endpoint will be called by the frontend to refresh Stripe
-    // The actual refresh logic is handled in the Stripe route
+    await stripeService.refreshStripe();
     res.json({ 
-      message: 'Stripe refresh request received',
-      note: 'Stripe instance will be refreshed on next request'
+      message: 'Stripe service refreshed successfully'
     });
   } catch (error) {
-    console.error('Error handling Stripe refresh request:', error);
+    console.error('Error refreshing Stripe service:', error);
     res.status(500).json({ 
-      message: 'Failed to process Stripe refresh request',
+      message: 'Failed to refresh Stripe service',
       error: error.message 
     });
   }
@@ -1066,15 +1090,11 @@ router.post('/refresh-services', async (req, res) => {
       solanaMode: settings.solanaMode
     });
 
-    // Import services dynamically to avoid circular dependencies
-    const { default: SolanaService } = await import('../services/solanaService.js');
+    // Refresh all services
+    await settingsRefreshService.refreshAllServices();
     
-    // Refresh Solana service
-    const solanaService = new SolanaService();
-    await solanaService.refreshConnection();
-    
-    // Note: Stripe service will refresh automatically on next request
-    // due to the ensureStripeInitialized() call in each route
+    // Get updated status
+    const servicesStatus = await settingsRefreshService.getServicesStatus();
     
     res.json({ 
       message: 'All services refreshed successfully',
@@ -1083,7 +1103,7 @@ router.post('/refresh-services', async (req, res) => {
         stripeMode: settings.stripeMode,
         solanaMode: settings.solanaMode
       },
-      note: 'Stripe will refresh on next payment request'
+      servicesStatus: servicesStatus
     });
   } catch (error) {
     console.error('Error refreshing services:', error);

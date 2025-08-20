@@ -1,6 +1,4 @@
 import express from 'express';
-import Stripe from 'stripe';
-import dotenv from 'dotenv';
 import SignupProgress from '../models/SignupProgress.js';
 import { authenticateToken } from '../middleware/auth.js';
 import LogService from '../services/logService.js';
@@ -9,92 +7,30 @@ import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
-
-dotenv.config();
+import stripeService from '../services/stripeService.js';
 
 const router = express.Router();
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
 
-let stripe = null;
-let lastStripeKey = null;
-
-// Initialize Stripe with settings from MongoDB
-const initializeStripe = async () => {
-  try {
-    const settings = await Settings.getSettings();
-    
-    // Check if we should use test mode based on settings
-    const isTestMode = settings.isTestMode || settings.stripeMode === 'test';
-    
-    if (settings.stripeSecretKey && settings.stripeSecretKey !== lastStripeKey) {
-      let secretKey = settings.stripeSecretKey;
-      
-      // If test mode is enabled, ensure we're using test keys
-      if (isTestMode) {
-        if (secretKey.startsWith('sk_live_')) {
-          // Convert live key to test key format
-          secretKey = secretKey.replace('sk_live_', 'sk_test_');
-        }
-        // If it's already a test key, use it as is
-      } else {
-        // Live mode - ensure we're using live keys
-        if (secretKey.startsWith('sk_test_')) {
-          // Convert test key to live key format
-          secretKey = secretKey.replace('sk_test_', 'sk_live_');
-        }
-        // If it's already a live key, use it as is
-      }
-      
-      stripe = new Stripe(secretKey);
-      lastStripeKey = secretKey;
-      
-      console.log(`Stripe initialized in ${isTestMode ? 'TEST' : 'LIVE'} mode`);
-      console.log(`Using key: ${secretKey.substring(0, 10)}...`);
-    } else if (!settings.stripeSecretKey) {
-      console.log('Stripe secret key not found in settings. Payment functionality will be disabled.');
-    }
-  } catch (error) {
-    console.error('Error initializing Stripe from settings:', error);
-  }
-};
-
-// Check and refresh Stripe instance if needed
-const ensureStripeInitialized = async () => {
-  try {    
-    // Test database connection first
-    try {
-      const settings = await Settings.getSettings();
-      
-      // Check if we need to refresh based on test mode or key changes
-      const isTestMode = settings.isTestMode || settings.stripeMode === 'test';
-      const currentTestMode = lastStripeKey ? lastStripeKey.startsWith('sk_test_') : false;
-      
-      if (settings.stripeSecretKey !== lastStripeKey || isTestMode !== currentTestMode) {
-        console.log('Stripe settings changed, refreshing instance...');
-        await initializeStripe();
-      }
-    } catch (dbError) {
-      console.error('Database error when fetching settings:', dbError);
-      // If database fails, we can't initialize Stripe, but don't crash the route
-    }
-  } catch (error) {
-    console.error('Error ensuring Stripe is initialized:', error);
-    // Don't throw the error, just log it and continue
-    // This allows the route to fall back to mock mode
-  }
-};
-
-// Initialize Stripe on module load
-initializeStripe();
-
 // Test endpoint to verify the route is working
-router.get('/test', (req, res) => {
-  res.json({ 
-    message: 'Stripe route is working',
-    timestamp: new Date().toISOString(),
-    stripeConfigured: !!stripe
-  });
+router.get('/test', async (req, res) => {
+  try {
+    const stripe = await stripeService.getStripe();
+    const mode = await stripeService.getCurrentMode();
+    
+    res.json({ 
+      message: 'Stripe route is working',
+      timestamp: new Date().toISOString(),
+      stripeConfigured: !!stripe,
+      mode: mode
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Error checking Stripe status',
+      error: error.message 
+    });
+  }
 });
 
 // Create payment intent
@@ -106,8 +42,8 @@ router.post('/create-payment-intent', async (req, res) => {
       return res.status(400).json({ error: 'Amount is required' });
     }
 
-    // Ensure Stripe is initialized with latest settings
-    await ensureStripeInitialized();
+    // Get Stripe instance (will auto-refresh if settings changed)
+    const stripe = await stripeService.getStripe();
 
     // If Stripe is not configured, return a mock response for development
     if (!stripe) {
@@ -143,12 +79,8 @@ router.post('/create-checkout-session', async (req, res) => {
       return res.status(400).json({ error: 'Amount is required' });
     }
 
-    // Ensure Stripe is initialized with latest settings
-    try {
-      await ensureStripeInitialized();
-    } catch (stripeInitError) {
-      console.error('Error ensuring Stripe initialization:', stripeInitError);
-    }
+    // Get Stripe instance (will auto-refresh if settings changed)
+    const stripe = await stripeService.getStripe();
 
     // Note: amount should be in cents (e.g., 2999 for $29.99)
     console.log('Stripe instance status:', { hasStripe: !!stripe });
@@ -198,6 +130,9 @@ router.post('/create-checkout-session', async (req, res) => {
 
 // Webhook endpoint for handling Stripe events
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  // Get Stripe instance (will auto-refresh if settings changed)
+  const stripe = await stripeService.getStripe();
+  
   // If Stripe is not configured, return success for development
   if (!stripe) {
     return res.json({ received: true });
@@ -287,8 +222,8 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       tempHeap[sessionId] = true;
     }
 
-    // Ensure Stripe is initialized with latest settings
-    await ensureStripeInitialized();
+    // Get Stripe instance (will auto-refresh if settings changed)
+    const stripe = await stripeService.getStripe();
 
     // Retrieve the session from Stripe
     let session;
