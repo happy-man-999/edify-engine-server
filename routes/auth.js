@@ -6,6 +6,9 @@ import SignupProgress from '../models/SignupProgress.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 import LogService from '../services/logService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 
