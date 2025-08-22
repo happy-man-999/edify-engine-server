@@ -54,7 +54,7 @@ router.post('/payment-success', async (req, res) => {
 
     // Determine if this is a new-world creation or item purchase
     const isNewWorld = txInfo.itemId === 'new-world';
-    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'premium-plan';
+    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'basic-plan' && txInfo.itemId !== 'advanced-plan';
 
     // Validate required data
     if (!txInfo.userId) {
@@ -114,7 +114,7 @@ router.post('/payment-success', async (req, res) => {
             currency: 'SOL'
           });
         } else {
-          // For other types (like premium plans)
+          // For other types (like plans)
           await LogService.createLog({
             level: 'success',
             type: 'purchase',
@@ -161,7 +161,7 @@ router.post('/payment-success', async (req, res) => {
         itemId: txInfo.itemId
       });
     } else {
-      // Handle premium plan or other types
+      // Handle plan or other types
       return res.status(200).json({ 
         message: 'Transaction processed successfully',
         itemType: 'other'

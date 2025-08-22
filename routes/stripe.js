@@ -261,7 +261,8 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         date: new Date(),
         item: null, // Will be set based on item type
         itemType: itemId === 'new-world' ? 'new-world' : 
-                 itemId === 'premium-plan' ? 'premium-plan' : 
+                 itemId === 'basic-plan' ? 'basic-plan' : 
+                 itemId === 'advanced-plan' ? 'advanced-plan' : 
                  itemId && itemId !== 'unknown' ? 'item-purchase' : 'other'
       });
     } catch (error) {
@@ -270,9 +271,10 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     }
 
     // Handle different payment types based on itemId
-    if (itemId === 'premium-plan') {
-      // Handle premium plan signup payment
+    if (itemId === 'basic-plan' || itemId === 'advanced-plan') {
+      // Handle plan signup payment
       const progress = await SignupProgress.findOne({ userId: req.user._id });
+      const planName = itemId === 'basic-plan' ? 'Basic' : 'Advanced';
       
       if (progress) {
         progress.payment = {
@@ -285,10 +287,10 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         progress.completedAt = new Date();
         await progress.save();
         
-        // Log successful premium plan payment
+        // Log successful plan payment
         try {
           await LogService.logPurchase(req.user._id, null, transaction._id, {
-            itemName: 'Edify Engine Premium Plan',
+            itemName: `Edify Engine ${planName} Plan`,
             amount: amount,
             paymentMethod: 'stripe',
             signature: sessionId,
@@ -300,8 +302,8 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         
         res.json({ 
           success: true, 
-          message: 'Premium plan payment completed and signup progress updated',
-          itemType: 'premium-plan',
+          message: `${planName} plan payment completed and signup progress updated`,
+          itemType: itemId,
           itemName: itemName
         });
       } else {
