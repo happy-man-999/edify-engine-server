@@ -41,9 +41,20 @@ class SolanaService {
       }
       
       if (!this.connection) {
-        const endpoint = this.network === 'mainnet' 
-          ? 'https://api.mainnet-beta.solana.com'
-          : 'https://api.devnet.solana.com';
+        let endpoint;
+        if (this.network === 'mainnet') {
+          // Use Helius RPC for mainnet - API key should be in .env file
+          const heliusApiKey = process.env.HELIUS_API_KEY;
+          if (!heliusApiKey) {
+            console.warn('Helius API key not found in environment variables');
+            // Fallback to a free endpoint if no API key
+            endpoint = 'https://ssc-dao.genesysgo.net/';
+          } else {
+            endpoint = `https://rpc.helius.xyz/?api-key=${heliusApiKey}`;
+          }
+        } else {
+          endpoint = 'https://api.devnet.solana.com';
+        }
         
         this.connection = new Connection(endpoint, 'confirmed');
         console.log(`Solana connection initialized for ${this.network.toUpperCase()}`);
