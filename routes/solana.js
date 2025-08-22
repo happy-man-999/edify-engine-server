@@ -233,7 +233,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     // Save droplet information to database
     let droplet;
     try {
-      const subdomain = "new."+signature.slice(0, 6);
+      const subdomain = signature.slice(0, 6);
       droplet = await dropletService.createDroplet({
         dropletId: result.droplet.id,
         name: result.droplet.name,
@@ -272,12 +272,12 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
 
     // Assign subdomain
     try {
-      await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, "new."+signature.slice(0, 6));
+      await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, signature.slice(0, 6));
       
       // Log subdomain assignment
       try {
         await LogService.logSubdomainAssigned(userId, {
-          subdomain: "new."+signature.slice(0, 6),
+          subdomain: signature.slice(0, 6),
           dropletId: dropletId
         });
       } catch (logError) {
@@ -302,7 +302,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     emitWebhookEvent(userId, 'new-world-created', {
       signature,
       dropletId,
-      domain: `new.${signature.slice(0, 6)}.${settings.defaultDnsDomain}`,
+      domain: `${signature.slice(0, 6)}.${settings.defaultDnsDomain}`,
       status: 'completed'
     });
     

@@ -17,6 +17,7 @@ class DigitalOceanService {
         ipv6: true,
         monitoring: true,
         tags: ["cloned", "world"],
+        user_data: "#cloud-config\nruncmd:\n  - certbot certonly --dns-digitalocean --dns-digitalocean-credentials /etc/letsencrypt/secrets/digitalocean.ini -d \"*.edifyengine.com\" -d edifyengine.com --non-interactive --agree-tos -m edifyengine@gmail.com\n  - systemctl start nginx"
       };
 
       // Merge default config with provided config
