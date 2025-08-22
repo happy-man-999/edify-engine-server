@@ -311,6 +311,18 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       }
     } else if (itemId === 'new-world') {
       // Handle new world creation payment - return immediately and process in background
+      
+      // Check if user already has 3 worlds before starting background processing
+      const userDropletCount = await dropletService.countUserDroplets(req.user._id);
+      if (userDropletCount >= 3) {
+        return res.status(400).json({ 
+          error: 'World creation limit reached',
+          message: 'You have already reached the maximum limit of 3 worlds. Please delete an existing world before creating a new one.',
+          itemType: 'new-world',
+          limitReached: true
+        });
+      }
+      
       const settings = await Settings.getSettings();
       
       // Log new world creation payment
@@ -384,6 +396,12 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
 async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, settings) {
   try {
     console.log(`Starting background processing for new world creation: ${sessionId}`);
+    
+    // Check if user already has 3 worlds
+    const userDropletCount = await dropletService.countUserDroplets(userId);
+    if (userDropletCount >= 3) {
+      throw new Error('User already has the maximum allowed number of worlds (3)');
+    }
     
     let dropletId;
     const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);

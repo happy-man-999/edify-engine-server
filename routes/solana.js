@@ -144,6 +144,17 @@ router.post('/payment-success', async (req, res) => {
 
     // Handle new-world creation (clone droplet) - return immediately and process in background
     if (isNewWorld) {
+      // Check if user already has 3 worlds before starting background processing
+      const userDropletCount = await dropletService.countUserDroplets(txInfo.userId);
+      if (userDropletCount >= 3) {
+        return res.status(400).json({ 
+          error: 'World creation limit reached',
+          message: 'You have already reached the maximum limit of 3 worlds. Please delete an existing world before creating a new one.',
+          itemType: 'new-world',
+          limitReached: true
+        });
+      }
+      
       // Start background processing
       processNewWorldCreation(signature, txInfo.userId, transaction._id, txInfo.amount, txInfo.itemName);
       
@@ -179,6 +190,12 @@ router.post('/payment-success', async (req, res) => {
 async function processNewWorldCreation(signature, userId, transactionId, amount, itemName) {
   try {
     console.log(`Starting background processing for new world creation: ${signature}`);
+    
+    // Check if user already has 3 worlds
+    const userDropletCount = await dropletService.countUserDroplets(userId);
+    if (userDropletCount >= 3) {
+      throw new Error('User already has the maximum allowed number of worlds (3)');
+    }
     
     let dropletId;
     

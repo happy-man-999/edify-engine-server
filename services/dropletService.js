@@ -649,6 +649,17 @@ class DropletService {
       throw error;
     }
   }
+
+  // Count droplets for a specific user
+  async countUserDroplets(userId) {
+    try {
+      const count = await Droplet.countDocuments({ user: userId });
+      return count;
+    } catch (error) {
+      console.error('Error counting user droplets:', error);
+      throw error;
+    }
+  }
 }
 
 export default DropletService; 
