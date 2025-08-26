@@ -128,6 +128,54 @@ router.post('/create-checkout-session', async (req, res) => {
   }
 });
 
+// Create Stripe Checkout session
+router.post('/create-subscription-session', async (req, res) => {
+  try {   
+    const { success_url, cancel_url, itemName, itemId } = req.body;
+
+    // Get Stripe instance (will auto-refresh if settings changed)
+    const stripe = await stripeService.getStripe();
+
+    // Note: amount should be in cents (e.g., 2999 for $29.99)
+    console.log('Stripe instance status:', { hasStripe: !!stripe });
+
+    // If Stripe is not configured, return a mock response for development
+    if (!stripe) {
+      return res.json({
+        sessionId: 'mock_session_id_for_development',
+      });
+    }
+    console.log(process.env.STRIPE_SUBSCRIPTION_PRICE_ID)
+
+    // Create a Checkout Session with metadata
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: process.env.STRIPE_SUBSCRIPTION_PRICE_ID,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: success_url || `${req.headers.origin}/signup-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancel_url || `${req.headers.origin}/signup`,
+      metadata: {
+        itemName: itemName || 'Edify Engine',
+        itemId: itemId || 'unknown'
+      }
+    });
+
+    res.json({
+      sessionId: session.id,
+    });
+  } catch (error) {
+    console.error('=== Stripe Checkout Session Error ===');
+    console.error('Error creating checkout session:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
 // Webhook endpoint for handling Stripe events
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   // Get Stripe instance (will auto-refresh if settings changed)
