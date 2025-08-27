@@ -8,6 +8,7 @@ import DigitalOceanService from '../services/digitalOceanService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import stripeService from '../services/stripeService.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 const transactionService = new TransactionService();
@@ -131,7 +132,7 @@ router.post('/create-checkout-session', async (req, res) => {
 // Create Stripe Checkout session
 router.post('/create-subscription-session', async (req, res) => {
   try {   
-    const { success_url, cancel_url, itemName, itemId } = req.body;
+    const { success_url, cancel_url, itemName, itemId, metadata } = req.body;
 
     // Get Stripe instance (will auto-refresh if settings changed)
     const stripe = await stripeService.getStripe();
@@ -145,14 +146,18 @@ router.post('/create-subscription-session', async (req, res) => {
         sessionId: 'mock_session_id_for_development',
       });
     }
-    console.log(process.env.STRIPE_SUBSCRIPTION_PRICE_ID)
+
+    let priceId = process.env.STRIPE_SUBSCRIPTION_PRICE_ID;
+    if (itemId === 'new-world') {
+      priceId = process.env.STRIPE_NEW_WORLD_PRICE_ID;
+    }
 
     // Create a Checkout Session with metadata
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
         {
-          price: process.env.STRIPE_SUBSCRIPTION_PRICE_ID,
+          price: priceId,
           quantity: 1,
         },
       ],
@@ -161,7 +166,8 @@ router.post('/create-subscription-session', async (req, res) => {
       cancel_url: cancel_url || `${req.headers.origin}/signup`,
       metadata: {
         itemName: itemName || 'Edify Engine',
-        itemId: itemId || 'unknown'
+        itemId: itemId || 'unknown',
+        ...metadata
       }
     });
 
@@ -225,6 +231,52 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           source: 'stripe',
           payload: failedPayment,
           status: 'failed'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
+      break;
+    case 'customer.subscription.created':
+      const subscription = event.data.object;
+      console.log('Subscription created:', subscription.id);
+      
+      // Handle new subscription creation
+      try {
+        await LogService.logWebhook({
+          type: 'customer.subscription.created',
+          source: 'stripe',
+          payload: subscription,
+          status: 'completed'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
+      break;
+    case 'customer.subscription.updated':
+      const updatedSubscription = event.data.object;
+      console.log('Subscription updated:', updatedSubscription.id);
+      
+      try {
+        await LogService.logWebhook({
+          type: 'customer.subscription.updated',
+          source: 'stripe',
+          payload: updatedSubscription,
+          status: 'completed'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook:', logError);
+      }
+      break;
+    case 'customer.subscription.deleted':
+      const deletedSubscription = event.data.object;
+      console.log('Subscription deleted:', deletedSubscription.id);
+      
+      try {
+        await LogService.logWebhook({
+          type: 'customer.subscription.deleted',
+          source: 'stripe',
+          payload: deletedSubscription,
+          status: 'completed'
         });
       } catch (logError) {
         console.error('Error logging webhook:', logError);
@@ -294,6 +346,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     const sessionMetadata = session.metadata;
     const itemId = sessionMetadata?.itemId;
     const itemName = sessionMetadata?.itemName;
+    const customDomain = sessionMetadata?.customDomain;
     const amount = session.amount_total / 100; // Convert from cents to dollars
     const currency = session.currency?.toUpperCase() || 'USD';
     
@@ -320,6 +373,12 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
 
     // Handle different payment types based on itemId
     if (itemId === 'basic-plan' || itemId === 'advanced-plan') {
+      // Give membership
+      await User.findOneAndUpdate(
+        { _id: req.user._id },
+        { role: 'user' }
+      );
+      
       // Handle plan signup payment
       const progress = await SignupProgress.findOne({ userId: req.user._id });
       const planName = itemId === 'basic-plan' ? 'Basic' : 'Advanced';
@@ -398,7 +457,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       }
       
       // Start background processing
-      processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, settings);
+      processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, customDomain, settings);
       
       res.json({ 
         success: true, 
@@ -441,7 +500,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
 });
 
 // Background processing function for new world creation
-async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, settings) {
+async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, customDomain, settings) {
   try {
     console.log(`Starting background processing for new world creation: ${sessionId}`);
     
@@ -456,7 +515,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     
     // Create droplet
     const result = await digitalOceanService.createNewDroplet({
-      name: sessionId.slice(-6),
+      name: customDomain || sessionId.slice(-6),
       image: settings.defaultSnapshotId
     });
 
@@ -468,7 +527,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     // Save droplet information to database
     let droplet;
     try {
-      const subdomain = sessionId.slice(-6);
+      const subdomain = customDomain || sessionId.slice(-6);
       droplet = await dropletService.createDroplet({
         dropletId: result.droplet.id,
         name: result.droplet.name,
@@ -490,12 +549,12 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     }
 
     // Assign subdomain
-    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, sessionId.slice(-6));
+    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, customDomain || sessionId.slice(-6));
     
     // Log subdomain assignment
     try {
       await LogService.logSubdomainAssigned(userId, {
-        subdomain: sessionId.slice(-6),
+        subdomain: customDomain || sessionId.slice(-6),
         dropletId: dropletId
       });
     } catch (logError) {
@@ -511,7 +570,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     emitWebhookEvent(userId, 'new-world-created', {
       sessionId,
       dropletId,
-      domain: `${sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
+      domain: `${customDomain || sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
       status: 'completed'
     });
     

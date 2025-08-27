@@ -21,11 +21,8 @@ const signupProgressSchema = new mongoose.Schema({
   useCases: [{
     type: String,
     enum: [
-      'Portfolio',
       'Events',
-      'Community',
-      'E-Commerce',
-      'Other',
+      'Gaming',
       "I'll decide later"
     ]
   }],

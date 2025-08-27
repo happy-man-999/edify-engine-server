@@ -101,6 +101,32 @@ router.post('/droplets/:dropletId/sync', authenticateToken, async (req, res) => 
   }
 });
 
+// Check domain availability
+router.post('/check-domain', async (req, res) => {
+  try {
+    const { subdomain } = req.body;
+
+    if (!subdomain) {
+      return res.status(400).json({ error: 'Subdomain is required' });
+    }
+
+    // Validate subdomain format
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]$/;
+    if (!domainRegex.test(subdomain)) {
+      return res.status(400).json({ error: 'Invalid subdomain format' });
+    }
+
+    // Check if subdomain already exists
+    const existingDroplet = await Droplet.findOne({ subdomain: subdomain });
+    const available = !existingDroplet;
+
+    res.json({ available, subdomain });
+  } catch (error) {
+    console.error('Error checking domain availability:', error);
+    res.status(500).json({ error: 'Failed to check domain availability' });
+  }
+});
+
 // Get user profile information
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
