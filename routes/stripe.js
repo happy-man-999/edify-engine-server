@@ -147,9 +147,12 @@ router.post('/create-subscription-session', async (req, res) => {
       });
     }
 
-    let priceId = process.env.STRIPE_SUBSCRIPTION_PRICE_ID;
-    if (itemId === 'new-world') {
-      priceId = process.env.STRIPE_NEW_WORLD_PRICE_ID;
+    let priceId = process.env.STRIPE_BASIC_PRICE_ID; // Default to basic plan
+    if (itemId === 'Premium') {
+      priceId = process.env.STRIPE_PREMIUM_PRICE_ID;
+    }
+    else if (itemId === 'new-world') {
+      priceId = process.env.STRIPE_CUSTOM_DOMAIN_PRICE_ID;
     }
 
     // Create a Checkout Session with metadata
