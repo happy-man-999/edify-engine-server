@@ -4,6 +4,9 @@ import Droplet from '../models/Droplet.js';
 import DropletService from './dropletService.js';
 import LogService from './logService.js';
 import Settings from '../models/Settings.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 class DigitalOceanService {
   constructor(token, sshKeyId) {
@@ -875,7 +878,7 @@ server {
         progress: 50
       });
       
-      const snapshotResult = await this.createSnapshot(sampleDropletId, 'sample');
+      const snapshotResult = await this.createSnapshot(sampleDropletId, process.env.DIGITAL_OCEAN_SAMPLE_SNAPSHOT_NAME);
       const actualActionId = snapshotResult.actionId;
       
       // Step 3: Monitor snapshot creation
@@ -894,7 +897,7 @@ server {
           snapshotCompleted = true;
           
           // Get the snapshot ID
-          const snapshotResult = await this.findSnapshotByName(sampleDropletId, 'sample');
+          const snapshotResult = await this.findSnapshotByName(sampleDropletId, process.env.DIGITAL_OCEAN_SAMPLE_SNAPSHOT_NAME);
           if (snapshotResult.success) {
             snapshotId = snapshotResult.snapshotId;
           } else {
