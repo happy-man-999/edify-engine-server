@@ -587,11 +587,11 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
       throw new Error('User already has the maximum allowed number of worlds (3)');
     }
     
-    let dropletId;
+    let dropletId, dropletName = sessionId.slice(-6).toLowerCase();
     
     // Create droplet
     const result = await digitalOceanService.createNewDroplet({
-      name: sessionId.slice(-6),
+      name: dropletName,
       image: settings.defaultSnapshotId
     });
 
@@ -603,7 +603,6 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     // Save droplet information to database
     let droplet;
     try {
-      const subdomain = sessionId.slice(-6);
       droplet = await dropletService.createDroplet({
         dropletId: result.droplet.id,
         name: result.droplet.name,
@@ -618,19 +617,19 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
         disk: result.droplet.disk,
         priceMonthly: result.droplet.size.price_monthly,
         tags: result.droplet.tags || [],
-        subdomain: subdomain
+        subdomain: dropletName
       });
     } catch (error) {
       console.error('Error saving droplet to database:', error.message);
     }
 
     // Assign subdomain
-    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, sessionId.slice(-6));
+    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, dropletName);
     
     // Log subdomain assignment
     try {
       await LogService.logSubdomainAssigned(userId, {
-        subdomain: sessionId.slice(-6),
+        subdomain: dropletName,
         dropletId: dropletId
       });
     } catch (logError) {
@@ -642,7 +641,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
       console.log(`Starting complete droplet setup workflow for ${dropletId}`);
       
       // Run the complete setup workflow in background
-      digitalOceanService.completeDropletSetup(dropletId)
+      digitalOceanService.completeDropletSetup(dropletId, dropletName)
         .then((result) => {
           if (result.success) {
             console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
@@ -672,7 +671,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     emitWebhookEvent(userId, 'new-world-created', {
       sessionId,
       dropletId,
-      domain: `${sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
+      domain: `${dropletName}.${settings.defaultDnsDomain}`,
       status: 'completed'
     });
     

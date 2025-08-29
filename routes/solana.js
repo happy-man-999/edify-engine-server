@@ -7,9 +7,13 @@ import LogService from '../services/logService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import settingsRefreshService from '../services/settingsRefreshService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
+const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 const router = Router();
 
@@ -212,10 +216,8 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
       throw new Error('DigitalOcean service not configured');
     }
     
-    const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
-    
     // Validate droplet name format (DigitalOcean requirements)
-    const dropletName = signature.slice(0, 6);
+    const dropletName = signature.slice(0, 6).toLowerCase();
     if (!dropletName || dropletName.length < 3) {
       throw new Error('Invalid droplet name format');
     }
@@ -233,7 +235,6 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     // Save droplet information to database
     let droplet;
     try {
-      const subdomain = signature.slice(0, 6);
       droplet = await dropletService.createDroplet({
         dropletId: result.droplet.id,
         name: result.droplet.name,
@@ -248,7 +249,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
         disk: result.droplet.disk,
         priceMonthly: result.droplet.size.price_monthly,
         tags: result.droplet.tags || [],
-        subdomain: subdomain
+        subdomain: dropletName
       });
       
       // Log droplet creation
@@ -272,12 +273,12 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
 
     // Assign subdomain
     try {
-      await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, signature.slice(0, 6));
+      await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, dropletName);
       
       // Log subdomain assignment
       try {
         await LogService.logSubdomainAssigned(userId, {
-          subdomain: signature.slice(0, 6),
+          subdomain: dropletName,
           dropletId: dropletId
         });
       } catch (logError) {
@@ -293,7 +294,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
       console.log(`Starting complete droplet setup workflow for ${dropletId}`);
       
       // Run the complete setup workflow in background
-      digitalOceanService.completeDropletSetup(dropletId)
+      digitalOceanService.completeDropletSetup(dropletId, dropletName)
         .then((result) => {
           if (result.success) {
             console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
@@ -323,7 +324,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     emitWebhookEvent(userId, 'new-world-created', {
       signature,
       dropletId,
-      domain: `${signature.slice(0, 6)}.${settings.defaultDnsDomain}`,
+      domain: `${dropletName}.${settings.defaultDnsDomain}`,
       status: 'completed'
     });
     

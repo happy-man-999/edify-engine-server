@@ -23,7 +23,7 @@ class DigitalOceanService {
         monitoring: true,
         tags: ["cloned", "world"],
         ssh_keys: [this.sshKeyId],
-        user_data: `#cloud-config\nruncmd:\n  - certbot certonly --dns-digitalocean --dns-digitalocean-credentials /etc/letsencrypt/digitalocean.ini -d ${newDropletName}.edifyengine.com --non-interactive --agree-tos -m lovesuper.panda414@gmail.com\n\n  - cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak\n\n  - |\n    cat > /etc/nginx/sites-available/default << 'EOF'\n    ##################################################\n    # HTTP -> HTTPS REDIRECT\n    ##################################################\n    server {\n        listen 80;\n        listen [::]:80;\n        server_name ${newDropletName}.edifyengine.com;\n\n        return 301 https://$host$request_uri;\n    }\n\n    ##################################################\n    # HTTPS SERVER BLOCK\n    ##################################################\n    server {\n        listen 443 ssl;\n        listen [::]:443 ssl;\n        server_name app.edifyengine.com;\n\n        ssl_certificate     /etc/letsencrypt/live/${newDropletName}.edifyengine.com/fullchain.pem;\n        ssl_certificate_key /etc/letsencrypt/live/${newDropletName}.edifyengine.com/privkey.pem;\n\n        location / {\n            proxy_pass http://localhost:3000;\n            proxy_http_version 1.1;\n            proxy_set_header Upgrade $http_upgrade;\n            proxy_set_header Connection 'upgrade';\n            proxy_set_header Host $host;\n            proxy_cache_bypass $http_upgrade;\n            proxy_set_header X-Real-IP $remote_addr;\n            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $scheme;\n        }\n    }\n    EOF\n\n  - systemctl start nginx\n\n  - sed -i 's/world.edifyengine.com/${newDropletName}.edifyengine.com/g' /var/www/hyperfy/.env\n\n  - pm2 reload hyperfy --update-env`,
+        user_data: `#cloud-config\nruncmd:\n  - certbot certonly --dns-digitalocean --dns-digitalocean-credentials /etc/letsencrypt/digitalocean.ini -d ${newDropletName}.edifyengine.com --non-interactive --agree-tos -m lovesuper.panda414@gmail.com\n\n  - cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak\n\n  - |\n    cat > /etc/nginx/sites-available/default << 'EOF'\n    ##################################################\n    # HTTP -> HTTPS REDIRECT\n    ##################################################\n    server {\n        listen 80;\n        listen [::]:80;\n        server_name ${newDropletName}.edifyengine.com;\n\n        return 301 https://$host$request_uri;\n    }\n\n    ##################################################\n    # HTTPS SERVER BLOCK\n    ##################################################\n    server {\n        listen 443 ssl;\n        listen [::]:443 ssl;\n        server_name app.edifyengine.com;\n\n        ssl_certificate     /etc/letsencrypt/live/${newDropletName}.edifyengine.com/fullchain.pem;\n        ssl_certificate_key /etc/letsencrypt/live/${newDropletName}.edifyengine.com/privkey.pem;\n\n        location / {\n            proxy_pass http://localhost:3000;\n            proxy_http_version 1.1;\n            proxy_set_header Upgrade $http_upgrade;\n            proxy_set_header Connection 'upgrade';\n            proxy_set_header Host $host;\n            proxy_cache_bypass $http_upgrade;\n            proxy_set_header X-Real-IP $remote_addr;\n            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n            proxy_set_header X-Forwarded-Proto $scheme;\n        }\n    }\n    EOF\n\n  - systemctl start nginx\n\n  - sleep 10`,
       };
 
       // Merge default config with provided config
@@ -206,7 +206,7 @@ class DigitalOceanService {
   }
 
   // Complete droplet setup workflow: power on, wait for readiness, SSH access, PM2 management
-  async completeDropletSetup(dropletId) {
+  async completeDropletSetup(dropletId, newDropletName) {
     try {
       console.log(`Starting complete setup workflow for droplet ${dropletId}`);
       
@@ -226,6 +226,7 @@ class DigitalOceanService {
       
       // Step 4: Make HTTP POST request to start hyperfy
       console.log(`Making HTTP request to start hyperfy on droplet ${dropletId}...`);
+      await this.executeCommandViaHTTP(dropletIp, `sed -i 's/world.edifyengine.com/${newDropletName}.edifyengine.com/g' /var/www/hyperfy/.env`);
       const httpResult = await this.executeCommandViaHTTP(dropletIp, 'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev');
       
       if (httpResult.success) {
