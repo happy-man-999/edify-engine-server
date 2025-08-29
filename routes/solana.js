@@ -54,7 +54,7 @@ router.post('/payment-success', async (req, res) => {
 
     // Determine if this is a new-world creation or item purchase
     const isNewWorld = txInfo.itemId === 'new-world';
-    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'basic-plan' && txInfo.itemId !== 'advanced-plan';
+    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'basic-plan' && txInfo.itemId !== 'premium-plan';
 
     // Validate required data
     if (!txInfo.userId) {

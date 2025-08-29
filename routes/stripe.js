@@ -152,7 +152,7 @@ router.post('/create-subscription-session', async (req, res) => {
     }
 
     let priceId = process.env.STRIPE_BASIC_PRICE_ID; // Default to basic plan
-    if (itemId === 'Premium') {
+    if (itemId === 'premium-plan') {
       priceId = process.env.STRIPE_PREMIUM_PRICE_ID;
     }
     else if (itemId === 'custom-domain') {
@@ -371,7 +371,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         item: null, // Will be set based on item type
         itemType: itemId === 'new-world' ? 'new-world' : 
                  itemId === 'basic-plan' ? 'basic-plan' : 
-                 itemId === 'advanced-plan' ? 'advanced-plan' : 
+                 itemId === 'premium-plan' ? 'premium-plan' : 
                  itemId && itemId !== 'unknown' ? 'item-purchase' : 'other'
       });
     } catch (error) {
@@ -380,7 +380,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     }
 
     // Handle different payment types based on itemId
-    if (itemId === 'basic-plan' || itemId === 'advanced-plan') {
+    if (itemId === 'basic-plan' || itemId === 'premium-plan') {
       // Give membership
       await User.findOneAndUpdate(
         { _id: req.user._id },
@@ -392,7 +392,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       
       // Handle plan signup payment
       const progress = await SignupProgress.findOne({ userId: req.user._id });
-      const planName = itemId === 'basic-plan' ? 'Basic' : 'Advanced';
+      const planName = itemId === 'basic-plan' ? 'Basic' : 'Premium';
       
       if (progress) {
         progress.payment = {
