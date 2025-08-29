@@ -1,7 +1,9 @@
 import axios from 'axios';
-import { Client } from 'ssh2';
-import fs from 'fs';
-import path from 'path';
+import Action from '../models/Action.js';
+import Droplet from '../models/Droplet.js';
+import DropletService from './dropletService.js';
+import LogService from './logService.js';
+import Settings from '../models/Settings.js';
 
 class DigitalOceanService {
   constructor(token, sshKeyId) {
@@ -382,6 +384,164 @@ class DigitalOceanService {
     }
   }
 
+  async createSnapshot(dropletId, snapshotName) {
+    try {
+      console.log(`Creating snapshot '${snapshotName}' for droplet ${dropletId}...`);
+      
+      const response = await axios.post(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
+        type: 'snapshot',
+        name: snapshotName
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
+
+      if (response.status === 201) {
+        const actionId = response.data.action.id;
+        console.log(`Snapshot creation initiated with action ID: ${actionId}`);
+        return { 
+          success: true, 
+          actionId: actionId,
+          message: `Snapshot '${snapshotName}' creation initiated successfully` 
+        };
+      } else {
+        throw new Error(`Unexpected response status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`Error creating snapshot for droplet ${dropletId}:`, error);
+      
+      if (error.response?.status === 404) {
+        throw new Error(`Droplet ${dropletId} not found`);
+      } else if (error.response?.status === 422) {
+        throw new Error(`Cannot create snapshot for droplet ${dropletId} (may be powered on)`);
+      } else if (error.response?.status === 429) {
+        throw new Error(`Rate limit exceeded. Please try again later.`);
+      } else {
+        throw new Error(`Failed to create snapshot for droplet ${dropletId}: ${error.message}`);
+      }
+    }
+  }
+
+  async checkActionStatus(actionId) {
+    try {
+      console.log(`Checking action status for action ID: ${actionId}...`);
+      
+      const response = await axios.get(`https://api.digitalocean.com/v2/actions/${actionId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
+
+      if (response.status === 200) {
+        const action = response.data.action;
+        console.log(`Action ${actionId} status: ${action.status}`);
+        return { 
+          success: true, 
+          status: action.status,
+          message: action.message || `Action status: ${action.status}`,
+          startedAt: action.started_at,
+          completedAt: action.completed_at
+        };
+      } else {
+        throw new Error(`Unexpected response status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`Error checking action status for action ${actionId}:`, error);
+      
+      if (error.response?.status === 404) {
+        throw new Error(`Action ${actionId} not found`);
+      } else if (error.response?.status === 429) {
+        throw new Error(`Rate limit exceeded. Please try again later.`);
+      } else {
+        throw new Error(`Failed to check action status for action ${actionId}: ${error.message}`);
+      }
+    }
+  }
+
+  async findSnapshotByName(dropletId, snapshotName) {
+    try {
+      console.log(`Finding snapshot '${snapshotName}' for droplet ${dropletId}...`);
+      
+      const response = await axios.get('https://api.digitalocean.com/v2/snapshots', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        },
+        params: {
+          resource_type: 'droplet',
+          resource_id: dropletId
+        }
+      });
+
+      if (response.status === 200) {
+        const snapshots = response.data.snapshots;
+        const targetSnapshot = snapshots
+          .filter(snapshot => snapshot.name === snapshotName)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+        if (targetSnapshot) {
+          console.log(`Found snapshot '${snapshotName}' with ID: ${targetSnapshot.id}`);
+          return { 
+            success: true, 
+            snapshotId: targetSnapshot.id,
+            snapshot: targetSnapshot,
+            message: `Snapshot '${snapshotName}' found successfully` 
+          };
+        } else {
+          return { 
+            success: false, 
+            message: `Snapshot '${snapshotName}' not found for droplet ${dropletId}` 
+          };
+        }
+      } else {
+        throw new Error(`Unexpected response status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`Error finding snapshot '${snapshotName}' for droplet ${dropletId}:`, error);
+      
+      if (error.response?.status === 404) {
+        throw new Error(`Droplet ${dropletId} not found`);
+      } else if (error.response?.status === 429) {
+        throw new Error(`Rate limit exceeded. Please try again later.`);
+      } else {
+        throw new Error(`Failed to find snapshot '${snapshotName}' for droplet ${dropletId}: ${error.message}`);
+      }
+    }
+  }
+
+  async deleteSnapshot(snapshotId) {
+    try {
+      console.log(`Deleting snapshot ${snapshotId}...`);
+      
+      const response = await axios.delete(`https://api.digitalocean.com/v2/snapshots/${snapshotId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        }
+      });
+
+      if (response.status === 204) {
+        console.log(`Snapshot ${snapshotId} deleted successfully`);
+        return { success: true, message: `Snapshot ${snapshotId} deleted successfully` };
+      } else {
+        throw new Error(`Unexpected response status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`Error deleting snapshot ${snapshotId}:`, error);
+      
+      if (error.response?.status === 404) {
+        throw new Error(`Snapshot ${snapshotId} not found`);
+      } else if (error.response?.status === 422) {
+        throw new Error(`Snapshot ${snapshotId} cannot be deleted (may be in use)`);
+      } else {
+        throw new Error(`Failed to delete snapshot ${snapshotId}: ${error.message}`);
+      }
+    }
+  }
+
   // Generate nginx configuration for custom domain
   generateNginxConfig(domain) {
     return `##################################################
@@ -661,6 +821,262 @@ server {
       }
       
       throw new Error(`Failed to complete custom domain setup: ${error.message}`);
+    }
+  }
+
+  async startSnapshotUpdateProcess(actionId, userId) {
+    try {
+      console.log(`Starting background snapshot update process for action: ${actionId}`);
+            
+      // Update action status to in_progress
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Starting snapshot update process...',
+        progress: 10
+      });
+      
+      // Step 1: Power off the sample droplet
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Powering off sample droplet...',
+        progress: 20
+      });
+      
+      const sampleDropletId = process.env.DIGITAL_OCEAN_SAMPLE_DROPLET_ID;
+      if (!sampleDropletId) {
+        await Action.updateStatus(actionId, 'failed', {
+          error: {
+            message: 'Default droplet ID not configured in settings',
+            code: 'CONFIG_ERROR'
+          },
+          progressMessage: 'Failed: Default droplet ID not configured'
+        });
+        return;
+      }
+      
+      await this.powerOffDroplet(sampleDropletId);
+      
+      // Wait for droplet to be powered off
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Waiting for droplet to power off...',
+        progress: 30
+      });
+      
+      let dropletInfo;
+      while (true) {
+        dropletInfo = await this.getDropletInfo(sampleDropletId);
+        if (dropletInfo.droplet.status === 'off') {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Step 2: Create a new snapshot
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Creating new snapshot...',
+        progress: 50
+      });
+      
+      const snapshotResult = await this.createSnapshot(sampleDropletId, 'sample');
+      const actualActionId = snapshotResult.actionId;
+      
+      // Step 3: Monitor snapshot creation
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Snapshot creation in progress...',
+        progress: 60
+      });
+      
+      let snapshotCompleted = false;
+      let snapshotId = null;
+      
+      while (!snapshotCompleted) {
+        const actionResult = await this.checkActionStatus(actualActionId);
+        
+        if (actionResult.status === 'completed') {
+          snapshotCompleted = true;
+          
+          // Get the snapshot ID
+          const snapshotResult = await this.findSnapshotByName(sampleDropletId, 'sample');
+          if (snapshotResult.success) {
+            snapshotId = snapshotResult.snapshotId;
+          } else {
+            await Action.updateStatus(actionId, 'failed', {
+              error: {
+                message: 'Failed to find the newly created snapshot',
+                code: 'SNAPSHOT_NOT_FOUND'
+              },
+              progressMessage: 'Failed: Could not find created snapshot'
+            });
+            return;
+          }
+        } else if (actionResult.status === 'errored') {
+          await Action.updateStatus(actionId, 'failed', {
+            error: {
+              message: `Snapshot creation failed: ${actionResult.message || 'Unknown error'}`,
+              code: 'DIGITALOCEAN_ERROR'
+            },
+            progressMessage: 'Failed: Snapshot creation errored'
+          });
+          return;
+        } else {
+          await Action.updateStatus(actionId, 'in_progress', {
+            progressMessage: `Snapshot status: ${actionResult.status}`,
+            progress: 70
+          });
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+
+      // Step 4: Power on the sample droplet
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Powering on sample droplet...',
+        progress: 80
+      });
+      
+      await this.powerOnDroplet(sampleDropletId);
+      
+      // Wait for droplet to be powered on
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Waiting for droplet to power on...',
+        progress: 90
+      });
+      
+      while (true) {
+        dropletInfo = await this.getDropletInfo(sampleDropletId);
+        if (dropletInfo.droplet.status === 'active') {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Step 5: Update settings and mark as completed
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Updating system settings...',
+        progress: 95
+      });
+      
+      // Update the default snapshot ID in settings
+      const settings = await Settings.getSettings();
+      const oldSnapshotId = settings.defaultSnapshotId;
+      
+      await Settings.findOneAndUpdate(
+        {}, 
+        { defaultSnapshotId: snapshotId },
+        { new: true }
+      );
+      
+      console.log(`Snapshot updated successfully. Old ID: ${oldSnapshotId}, New ID: ${snapshotId}`);
+      
+      // Delete the old snapshot
+      if (oldSnapshotId && oldSnapshotId !== snapshotId) {
+        try {
+          await Action.updateStatus(actionId, 'in_progress', {
+            progressMessage: 'Cleaning up old snapshot...',
+            progress: 98
+          });
+          
+          await this.deleteSnapshot(oldSnapshotId);
+          console.log(`Old snapshot ${oldSnapshotId} deleted successfully`);
+        } catch (deleteError) {
+          console.warn(`Failed to delete old snapshot ${oldSnapshotId}:`, deleteError.message);
+          // Don't fail the entire process if old snapshot deletion fails
+        }
+      }
+      
+      // Log the settings update
+      try {
+        await LogService.logSettingsUpdated(userId, {
+          defaultSnapshotId: { old: oldSnapshotId, new: snapshotId },
+          snapshotUpdate: { 
+            actionId: actionId, 
+            status: 'completed',
+            message: `Snapshot update completed. New ID: ${snapshotId}`
+          }
+        });
+      } catch (logError) {
+        console.error('Error logging snapshot update completion:', logError);
+      }
+      
+      // Final step: Wait 2 minutes and start the application
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Waiting 2 minutes before starting application...',
+        progress: 99
+      });
+      
+      console.log('Waiting 2 minutes before starting application...');
+      await new Promise(resolve => setTimeout(resolve, 120000)); // 2 minutes
+      
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Starting application via PM2...',
+        progress: 99
+      });
+      
+      try {
+        // Get the sample droplet IP address
+        const dropletIp = await this.getDropletPublicNetwork(sampleDropletId);
+        
+        if (dropletIp) {
+          console.log(`Starting application on droplet IP: ${dropletIp}:2999`);
+          
+          // Make HTTP request to start the application
+          const startAppResult = await this.executeCommandViaHTTP(
+            dropletIp, 
+            'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev'
+          );
+          
+          if (startAppResult.success) {
+            console.log('Application started successfully via PM2');
+            await Action.updateStatus(actionId, 'in_progress', {
+              progressMessage: 'Application started successfully!',
+              progress: 99
+            });
+          } else {
+            console.warn('Failed to start application via PM2:', startAppResult.message);
+            await Action.updateStatus(actionId, 'in_progress', {
+              progressMessage: 'Warning: Application start may have failed',
+              progress: 99
+            });
+          }
+        } else {
+          console.warn('Could not determine droplet IP address for application start');
+          await Action.updateStatus(actionId, 'in_progress', {
+            progressMessage: 'Warning: Could not determine droplet IP',
+            progress: 99
+          });
+        }
+      } catch (appStartError) {
+        console.warn('Error starting application:', appStartError.message);
+        await Action.updateStatus(actionId, 'in_progress', {
+          progressMessage: 'Warning: Application start encountered an error',
+          progress: 99
+        });
+        // Don't fail the entire process if app start fails
+      }
+      
+      // Mark action as completed
+      await Action.updateStatus(actionId, 'completed', {
+        result: {
+          snapshotId: snapshotId,
+          message: `Snapshot updated successfully. New snapshot ID: ${snapshotId}`,
+          oldSnapshotId: oldSnapshotId,
+          applicationStarted: true
+        },
+        progressMessage: 'Snapshot update and application start completed successfully!',
+        progress: 100
+      });
+      
+      console.log(`Background snapshot update process completed for action: ${actionId}`);
+      
+    } catch (error) {
+      console.error(`Error in background snapshot update process for action ${actionId}:`, error);
+           
+      // Update action as failed
+      await Action.updateStatus(actionId, 'failed', {
+        error: {
+          message: error.message,
+          code: 'PROCESS_ERROR',
+          details: error.stack
+        },
+        progressMessage: `Failed: ${error.message}`
+      });
     }
   }
 }

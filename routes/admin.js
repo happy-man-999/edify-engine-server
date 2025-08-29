@@ -1,16 +1,23 @@
 import express from 'express';
+
 import { requireAdmin } from '../middleware/admin.js';
 import { authenticateToken } from '../middleware/auth.js';
 import User from '../models/User.js';
 import Settings from '../models/Settings.js';
+import Action from '../models/Action.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
 import stripeService from '../services/stripeService.js';
+import DigitalOceanService from '../services/digitalOceanService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
+const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 const router = express.Router();
 
@@ -1109,6 +1116,58 @@ router.post('/refresh-services', async (req, res) => {
     console.error('Error refreshing services:', error);
     res.status(500).json({ 
       message: 'Failed to refresh services',
+      error: error.message 
+    });
+  }
+});
+
+// Update snapshot from sample droplet
+router.post('/update-snapshot', async (req, res) => {
+  try {    
+    console.log('Starting snapshot update process...');
+    
+    // Create action record in database first
+    const actionId = `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const action = await Action.createAction({
+      actionId: actionId,
+      type: 'snapshot_update',
+      status: 'pending',
+      userId: req.user._id,
+      metadata: {
+        actionType: 'snapshot_creation'
+      },
+      progressMessage: 'Snapshot update process initiated'
+    });
+    
+    // Start background process (don't await - let it run in background)
+    digitalOceanService.startSnapshotUpdateProcess(actionId, req.user._id);
+    
+    console.log(`Snapshot update initiated with action ID: ${actionId}`);
+    
+    // Log the snapshot update initiation
+    try {
+      await LogService.logSettingsUpdated(req.user._id, {
+        snapshotUpdate: { 
+          actionId: actionId, 
+          status: 'initiated',
+          message: 'Snapshot update process started'
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging snapshot update initiation:', logError);
+    }
+    
+    res.json({ 
+      message: 'Snapshot update process initiated',
+      actionId: actionId,
+      status: 'pending'
+    });
+    
+  } catch (error) {
+    console.error('Error updating snapshot:', error);
+    res.status(500).json({ 
+      message: 'Failed to update snapshot',
       error: error.message 
     });
   }

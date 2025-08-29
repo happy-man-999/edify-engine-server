@@ -2,7 +2,15 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import Droplet from '../models/Droplet.js';
 import DropletService from '../services/dropletService.js';
+import DigitalOceanService from '../services/digitalOceanService.js';
+import Action from '../models/Action.js';
 import User from '../models/User.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const dropletService = new DropletService();
+const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 const router = express.Router();
 
@@ -65,7 +73,6 @@ router.post('/droplets/:dropletId/sync', authenticateToken, async (req, res) => 
     }
     
     // Create droplet service instance and sync status
-    const dropletService = new DropletService();
     const updatedDroplet = await dropletService.syncDropletStatus(dropletId);
     
     // Format the response for frontend
@@ -211,6 +218,104 @@ router.put('/profile', authenticateToken, async (req, res) => {
     console.error('Error updating user profile:', error);
     res.status(500).json({ 
       message: 'Failed to update user profile',
+      error: error.message 
+    });
+  }
+});
+
+// Check action status (generic endpoint for all actions)
+router.get('/status/:actionId', authenticateToken, async (req, res) => {
+  try {
+    const { actionId } = req.params;
+    
+    // Get action from database
+    const action = await Action.getAction(actionId);
+    
+    if (!action) {
+      return res.status(404).json({
+        success: false,
+        message: 'Action not found',
+        error: 'The specified action does not exist'
+      });
+    }
+    
+    // Check if user has access to this action
+    if (action.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied',
+        error: 'You do not have permission to view this action'
+      });
+    }
+    
+    // Return current action status from database
+    res.json({
+      success: true,
+      status: action.status,
+      progress: action.progress,
+      progressMessage: action.progressMessage,
+      result: action.result,
+      error: action.error,
+      startedAt: action.startedAt,
+      completedAt: action.completedAt
+    });
+    
+  } catch (error) {
+    console.error('Error checking action status:', error);
+    res.status(500).json({ 
+      message: 'Failed to check action status',
+      error: error.message 
+    });
+  }
+});
+
+// Get user's action history
+router.get('/actions', authenticateToken, async (req, res) => {
+  try {
+    const { type, status, limit = 20, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const options = {
+      type,
+      status,
+      limit: parseInt(limit),
+      skip
+    };
+    
+    // Remove undefined values
+    Object.keys(options).forEach(key => {
+      if (options[key] === undefined) {
+        delete options[key];
+      }
+    });
+    
+    const actions = await Action.getUserActions(req.user._id, options);
+    
+    res.json({
+      success: true,
+      actions: actions.map(action => ({
+        actionId: action.actionId,
+        type: action.type,
+        status: action.status,
+        progress: action.progress,
+        progressMessage: action.progressMessage,
+        result: action.result,
+        error: action.error,
+        startedAt: action.startedAt,
+        completedAt: action.completedAt,
+        createdAt: action.createdAt
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        hasMore: actions.length === parseInt(limit)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user actions:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch user actions',
       error: error.message 
     });
   }
