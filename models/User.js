@@ -44,6 +44,11 @@ const userSchema = new mongoose.Schema({
     enum: ['lead', 'user', 'admin'],
     default: 'lead'
   },
+  plan: {
+    type: String,
+    enum: ['basic', 'premium', 'enterprise'],
+    default: 'basic'
+  },
   lastLogin: {
     type: Date,
     default: Date.now

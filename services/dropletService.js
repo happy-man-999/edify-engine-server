@@ -8,7 +8,7 @@ import mongoose from 'mongoose';
 
 class DropletService {
   constructor() {
-    this.digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
+    this.digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
   }
 
   // Create a new droplet record
@@ -542,8 +542,24 @@ class DropletService {
 
       const previousStatus = droplet.status;
 
-      // Power on via DigitalOcean
-      await this.digitalOceanService.powerOnDroplet(dropletId);
+      // Power on and complete setup via DigitalOcean
+      try {
+        await this.digitalOceanService.completeDropletSetup(dropletId);
+        console.log(`Complete droplet setup completed for reprovisioned droplet ${dropletId}`);
+      } catch (setupError) {
+        console.error(`Complete droplet setup failed for reprovisioned droplet ${dropletId}:`, setupError.message);
+        // Log the setup error but don't fail the reprovision process
+        try {
+          await LogService.logError({
+            message: 'Complete droplet setup failed during reprovisioning',
+            error: setupError.message,
+            context: 'droplet_reprovisioning_setup',
+            userId: droplet.user._id
+          });
+        } catch (logError) {
+          console.error('Error logging setup error during reprovisioning:', logError);
+        }
+      }
       
       // Update local status
       droplet.status = 'new'; // Will be updated to 'active' when synced
@@ -658,6 +674,49 @@ class DropletService {
     } catch (error) {
       console.error('Error counting user droplets:', error);
       throw error;
+    }
+  }
+
+  // Update droplet subdomain
+  async updateDropletSubdomain(dropletId, subdomain) {
+    try {
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      if (!droplet) {
+        throw new Error('Droplet not found');
+      }
+
+      // Update subdomain
+      droplet.subdomain = subdomain;
+      await droplet.save();
+      
+      console.log(`Droplet ${dropletId} subdomain updated to: ${subdomain}`);
+      
+      // Log subdomain update
+      try {
+        await LogService.logDropletSubdomainUpdated(droplet.user, dropletId, {
+          name: droplet.name,
+          oldSubdomain: droplet.subdomain,
+          newSubdomain: subdomain
+        });
+      } catch (logError) {
+        console.error('Error logging subdomain update:', logError);
+      }
+      
+      return droplet;
+    } catch (error) {
+      console.error('Error updating droplet subdomain:', error);
+      throw error;
+    }
+  }
+
+  // Get droplet by custom domain
+  async getDropletByCustomDomain(customDomain) {
+    try {
+      const droplet = await Droplet.findOne({ subdomain: customDomain });
+      return droplet;
+    } catch (error) {
+      console.error('Error getting droplet by custom domain:', error);
+      return null;
     }
   }
 }

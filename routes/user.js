@@ -111,9 +111,36 @@ router.post('/check-domain', async (req, res) => {
     }
 
     // Validate subdomain format
-    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]$/;
+    // Validate domain format - allows normal domains like example.com, sub.example.com
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
     if (!domainRegex.test(subdomain)) {
-      return res.status(400).json({ error: 'Invalid subdomain format' });
+      return res.status(400).json({ error: 'Invalid domain format. Domain must be a valid domain name (e.g., example.com, app.example.com). Each part must be 1-63 characters long and contain only letters, numbers, and hyphens. Cannot start or end with a hyphen.' });
+    }
+    
+    // Additional validation for domain length and format
+    const domainParts = subdomain.split('.');
+    if (domainParts.length < 2) {
+      return res.status(400).json({ error: 'Domain must have at least 2 parts (e.g., example.com)' });
+    }
+    
+    if (domainParts.length > 5) {
+      return res.status(400).json({ error: 'Domain cannot have more than 5 parts' });
+    }
+    
+    // Check each part length
+    for (let i = 0; i < domainParts.length; i++) {
+      const part = domainParts[i];
+      if (part.length < 1 || part.length > 63) {
+        return res.status(400).json({ error: `Domain part "${part}" must be 1-63 characters long` });
+      }
+      if (part.startsWith('-') || part.endsWith('-')) {
+        return res.status(400).json({ error: `Domain part "${part}" cannot start or end with a hyphen` });
+      }
+    }
+    
+    // Check total domain length
+    if (subdomain.length > 253) {
+      return res.status(400).json({ error: 'Total domain length cannot exceed 253 characters' });
     }
 
     // Check if subdomain already exists

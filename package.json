@@ -25,6 +25,7 @@
     "mongoose": "^8.17.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "ssh2": "^1.17.0",
     "stripe": "^18.4.0",
     "ws": "^8.18.3"
   },

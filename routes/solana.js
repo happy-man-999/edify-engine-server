@@ -212,7 +212,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
       throw new Error('DigitalOcean service not configured');
     }
     
-    const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
+    const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
     
     // Validate droplet name format (DigitalOcean requirements)
     const dropletName = signature.slice(0, 6);
@@ -288,12 +288,33 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
       throw new Error('Failed to assign subdomain');
     }
 
-    // Power on droplet
+    // Power on droplet and complete setup workflow
     try {
-      await digitalOceanService.powerOnDroplet(dropletId);
+      console.log(`Starting complete droplet setup workflow for ${dropletId}`);
+      
+      // Run the complete setup workflow in background
+      digitalOceanService.completeDropletSetup(dropletId)
+        .then((result) => {
+          if (result.success) {
+            console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
+          } else {
+            console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
+          }
+        })
+        .catch((setupError) => {
+          console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
+          // Log the setup error but don't fail the entire process
+          LogService.logError({
+            message: 'Complete droplet setup workflow failed',
+            error: setupError.message,
+            context: 'droplet_complete_setup',
+            userId: userId
+          }).catch(logError => console.error('Error logging setup error:', logError));
+        });
+        
     } catch (error) {
-      console.error('Error running droplet:', error.message);
-      throw new Error('Failed to run droplet');
+      console.error('Error starting droplet setup workflow:', error.message);
+      throw new Error('Failed to start droplet setup workflow');
     }
 
     console.log(`Background processing completed for new world creation: ${signature}`);

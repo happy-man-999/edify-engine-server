@@ -9,10 +9,14 @@ import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import stripeService from '../services/stripeService.js';
 import User from '../models/User.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 const transactionService = new TransactionService();
 const dropletService = new DropletService();
+const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 // Test endpoint to verify the route is working
 router.get('/test', async (req, res) => {
@@ -151,7 +155,7 @@ router.post('/create-subscription-session', async (req, res) => {
     if (itemId === 'Premium') {
       priceId = process.env.STRIPE_PREMIUM_PRICE_ID;
     }
-    else if (itemId === 'new-world') {
+    else if (itemId === 'custom-domain') {
       priceId = process.env.STRIPE_CUSTOM_DOMAIN_PRICE_ID;
     }
 
@@ -350,6 +354,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     const itemId = sessionMetadata?.itemId;
     const itemName = sessionMetadata?.itemName;
     const customDomain = sessionMetadata?.customDomain;
+    const dropletId = sessionMetadata?.dropletId;
     const amount = session.amount_total / 100; // Convert from cents to dollars
     const currency = session.currency?.toUpperCase() || 'USD';
     
@@ -379,7 +384,10 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       // Give membership
       await User.findOneAndUpdate(
         { _id: req.user._id },
-        { role: 'user' }
+        { 
+          role: 'user', 
+          plan: itemId === 'basic-plan' ? 'basic' : 'premium' 
+        }
       );
       
       // Handle plan signup payment
@@ -460,7 +468,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       }
       
       // Start background processing
-      processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, customDomain, settings);
+      processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, settings);
       
       res.json({ 
         success: true, 
@@ -470,6 +478,72 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         processing: true,
         transactionId: transaction._id
       });
+    } else if (itemId === 'custom-domain') {
+      // Handle custom domain purchase
+      try {        
+        if (!customDomain) {
+          return res.status(400).json({ error: 'Custom domain is required for custom-domain purchase' });
+        }
+        
+        // Check if custom domain is already in use by another droplet
+        try {
+          const existingDroplet = await dropletService.getDropletByCustomDomain(customDomain);
+          if (existingDroplet) {
+            return res.status(400).json({ 
+              error: `Custom domain ${customDomain} is already in use by another droplet`,
+              reason: 'domain_already_in_use',
+              existingDropletId: existingDroplet.dropletId
+            });
+          }
+        } catch (domainCheckError) {
+          console.error('Error checking custom domain availability:', domainCheckError.message);
+          return res.status(500).json({ error: 'Failed to check custom domain availability' });
+        }
+        
+        // Log successful custom domain purchase
+        try {
+          await LogService.logPurchase(req.user._id, null, transaction._id, {
+            itemName: 'Custom Domain',
+            amount: amount,
+            paymentMethod: 'stripe',
+            signature: sessionId,
+            currency: currency,
+            customDomain: customDomain
+          });
+        } catch (logError) {
+          console.error('Error logging custom domain purchase:', logError);
+        }
+        
+        // Start background processing for custom domain setup
+        digitalOceanService.processCustomDomainSetup(sessionId, req.user._id, customDomain, dropletId, dropletService, emitWebhookEvent)
+          .then((result) => {
+            console.log(`Custom domain setup completed for ${customDomain}:`, result.message);
+          })
+          .catch((error) => {
+            console.error(`Custom domain setup failed for ${customDomain}:`, error.message);
+            // Log the error but don't fail the response
+            LogService.logError({
+              message: 'Custom domain setup failed',
+              error: error.message,
+              context: 'custom_domain_setup',
+              userId: req.user._id
+            }).catch(logError => console.error('Error logging custom domain setup error:', logError));
+          });
+        
+        res.json({ 
+          success: true, 
+          message: 'Custom domain purchase completed! Setup is being processed in the background.',
+          itemType: 'custom-domain',
+          itemName: 'Custom Domain',
+          customDomain: customDomain,
+          processing: true,
+          transactionId: transaction._id
+        });
+        
+      } catch (error) {
+        console.error('Error processing custom domain purchase:', error);
+        res.status(500).json({ error: 'Failed to process custom domain purchase' });
+      }
     } else if (itemId && itemId !== 'unknown') {
       // Log successful item purchase
       try {
@@ -503,7 +577,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
 });
 
 // Background processing function for new world creation
-async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, customDomain, settings) {
+async function processNewWorldCreation(sessionId, userId, transactionId, amount, currency, itemName, settings) {
   try {
     console.log(`Starting background processing for new world creation: ${sessionId}`);
     
@@ -514,11 +588,10 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     }
     
     let dropletId;
-    const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN);
     
     // Create droplet
     const result = await digitalOceanService.createNewDroplet({
-      name: customDomain || sessionId.slice(-6),
+      name: sessionId.slice(-6),
       image: settings.defaultSnapshotId
     });
 
@@ -530,7 +603,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     // Save droplet information to database
     let droplet;
     try {
-      const subdomain = customDomain || sessionId.slice(-6);
+      const subdomain = sessionId.slice(-6);
       droplet = await dropletService.createDroplet({
         dropletId: result.droplet.id,
         name: result.droplet.name,
@@ -552,20 +625,46 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     }
 
     // Assign subdomain
-    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, customDomain || sessionId.slice(-6));
+    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, sessionId.slice(-6));
     
     // Log subdomain assignment
     try {
       await LogService.logSubdomainAssigned(userId, {
-        subdomain: customDomain || sessionId.slice(-6),
+        subdomain: sessionId.slice(-6),
         dropletId: dropletId
       });
     } catch (logError) {
       console.error('Error logging subdomain assignment:', logError);
     }
 
-    // Power on droplet
-    await digitalOceanService.powerOnDroplet(dropletId);
+    // Power on droplet and complete setup workflow
+    try {
+      console.log(`Starting complete droplet setup workflow for ${dropletId}`);
+      
+      // Run the complete setup workflow in background
+      digitalOceanService.completeDropletSetup(dropletId)
+        .then((result) => {
+          if (result.success) {
+            console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
+          } else {
+            console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
+          }
+        })
+        .catch((setupError) => {
+          console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
+          // Log the setup error but don't fail the entire process
+          LogService.logError({
+            message: 'Complete droplet setup workflow failed',
+            error: setupError.message,
+            context: 'droplet_complete_setup',
+            userId: userId
+          }).catch(logError => console.error('Error logging setup error:', logError));
+        });
+        
+    } catch (error) {
+      console.error('Error starting droplet setup workflow:', error.message);
+      throw error;
+    }
     
     console.log(`Background processing completed for new world creation: ${sessionId}`);
     
@@ -573,7 +672,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     emitWebhookEvent(userId, 'new-world-created', {
       sessionId,
       dropletId,
-      domain: `${customDomain || sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
+      domain: `${sessionId.slice(-6)}.${settings.defaultDnsDomain}`,
       status: 'completed'
     });
     
@@ -600,6 +699,9 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     });
   }
 }
+
+
+
 
 // Webhook event emitter for frontend
 const webhookClients = new Map();
