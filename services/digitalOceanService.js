@@ -249,13 +249,13 @@ class DigitalOceanService {
   }
 
   // Setup custom domain: certbot, nginx, env update, and PM2 reload
-  async setupCustomDomain(ipAddress, customDomain) {
+  async setupCustomDomain(ipAddress, customDomain, subdomain) {
     try {
       console.log(`Setting up custom domain ${customDomain} on droplet ${ipAddress}`);
       
       // Step 1: Create SSL certificate with certbot
       console.log(`Step 1: Creating SSL certificate for ${customDomain}`);
-      const certbotResult = await this.executeCommandViaHTTP(ipAddress, `certbot certonly --dns-digitalocean --dns-digitalocean-credentials /etc/letsencrypt/digitalocean.ini -d ${customDomain} --non-interactive --agree-tos -m lovesuper.panda414@gmail.com`);
+      const certbotResult = await this.executeCommandViaHTTP(ipAddress, `sudo certbot certonly --nginx -d ${customDomain} -m lovesuper.panda414@gmail.com --agree-tos --non-interactive`);
       
       if (!certbotResult.success) {
         console.error(`Certbot failed: ${certbotResult.message}`);
@@ -300,7 +300,18 @@ class DigitalOceanService {
       
       // Step 3: Update hyperfy environment file
       console.log(`Step 3: Updating hyperfy environment file for ${customDomain}`);
-      const envUpdateResult = await this.executeCommandViaHTTP(ipAddress, `sed -i 's/world.edifyengine.com/${customDomain}/g' /var/www/hyperfy/.env`);
+      
+      // Determine the search string based on subdomain type
+      let searchString;
+      if (subdomain && subdomain.includes('.')) {
+        // Full domain (e.g., "example.com")
+        searchString = subdomain;
+      } else {
+        // Subdomain part (e.g., "myapp" -> "myapp.edifyengine.com")
+        searchString = subdomain ? `${subdomain}.edifyengine.com` : 'world.edifyengine.com';
+      }
+      
+      const envUpdateResult = await this.executeCommandViaHTTP(ipAddress, `sed -i 's/${searchString}/${customDomain}/g' /var/www/hyperfy/.env`);
       
       if (!envUpdateResult.success) {
         console.error(`Environment file update failed: ${envUpdateResult.message}`);
@@ -583,202 +594,36 @@ server {
 }`;
   }
 
-  // Create custom domain DNS record in DigitalOcean
-  async createCustomDomainDNS(customDomain, dropletIp) {
-    try {
-      console.log(`Creating DNS record for custom domain ${customDomain} pointing to ${dropletIp}`);
-      
-      // Extract the domain and subdomain from the custom domain
-      const domainParts = customDomain.split('.');
-      if (domainParts.length < 2) {
-        throw new Error(`Invalid custom domain format: ${customDomain}`);
-      }
-      
-      // For custom domains like "example.com", we need to create an A record
-      // For subdomains like "app.example.com", we need to create an A record with the subdomain name
-      let domainName, subdomainName;
-      
-      if (domainParts.length === 2) {
-        // Custom domain like "example.com"
-        domainName = customDomain;
-        subdomainName = '@'; // @ represents the root domain
-      } else {
-        // Subdomain like "app.example.com"
-        const subdomain = domainParts.slice(0, -2).join('.');
-        domainName = domainParts.slice(-2).join('.');
-        subdomainName = subdomain;
-      }
-      
-      console.log(`Domain: ${domainName}, Subdomain: ${subdomainName}`);
-      
-      // Check if the domain exists in DigitalOcean, create it if it doesn't exist
-      let domainExists = false;
-      try {
-        const domainResponse = await axios.get(`https://api.digitalocean.com/v2/domains/${domainName}`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
-          }
-        });
-        
-        console.log(`Domain ${domainName} found in DigitalOcean`);
-        domainExists = true;
-      } catch (domainError) {
-        if (domainError.response && domainError.response.status === 404) {
-          console.log(`Domain ${domainName} not found in DigitalOcean, creating it now...`);
-          
-          try {
-            // Create the domain in DigitalOcean
-            const createDomainResponse = await axios.post('https://api.digitalocean.com/v2/domains', {
-              name: domainName,
-              ip_address: dropletIp // Set the default IP for the domain
-            }, {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.token}`
-              }
-            });
-            
-            if (createDomainResponse.data && createDomainResponse.data.domain) {
-              console.log(`Domain ${domainName} created successfully in DigitalOcean`);
-              domainExists = true;
-              
-              // Wait a moment for the domain to be fully created
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            } else {
-              throw new Error('Failed to create domain - invalid response from DigitalOcean');
-            }
-          } catch (createError) {
-            console.error(`Error creating domain ${domainName}:`, createError.message);
-            throw new Error(`Failed to create domain ${domainName} in DigitalOcean: ${createError.message}`);
-          }
-        } else {
-          throw new Error(`Error checking domain ${domainName}: ${domainError.message}`);
-        }
-      }
-      
-      if (!domainExists) {
-        throw new Error(`Failed to ensure domain ${domainName} exists in DigitalOcean`);
-      }
-      
-      // Create A record pointing to the droplet IP
-      const dnsRecord = {
-        type: 'A',
-        name: subdomainName === '@' ? '@' : subdomainName,
-        data: dropletIp,
-        ttl: 300 // 5 minutes TTL for quick propagation
-      };
-      
-      console.log(`Creating DNS record:`, dnsRecord);
-      
-      // If we just created the domain, we might need to wait a bit longer for it to be fully ready
-      if (!domainExists) {
-        console.log(`Waiting additional time for newly created domain ${domainName} to be ready...`);
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 more seconds
-      }
-      
-      let response;
-      try {
-        response = await axios.post(`https://api.digitalocean.com/v2/domains/${domainName}/records`, dnsRecord, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
-          }
-        });
-      } catch (dnsError) {
-        console.error(`Error creating DNS record:`, dnsError.message);
-        if (dnsError.response) {
-          console.error(`DigitalOcean API error:`, dnsError.response.data);
-        }
-        throw new Error(`Failed to create DNS record: ${dnsError.message}`);
-      }
-      
-      if (response.data && response.data.domain_record) {
-        console.log(`DNS record created successfully for ${customDomain}`);
-        return {
-          success: true,
-          message: `DNS record created for ${customDomain}`,
-          recordId: response.data.domain_record.id,
-          domain: domainName,
-          subdomain: subdomainName,
-          ipAddress: dropletIp,
-          domainCreated: !domainExists,
-          domainName: domainName
-        };
-      } else {
-        throw new Error('Failed to create DNS record - invalid response from DigitalOcean');
-      }
-      
-    } catch (error) {
-      console.error(`Error creating DNS record for ${customDomain}:`, error.message);
-      return {
-        success: false,
-        message: `Failed to create DNS record: ${error.message}`,
-        error: error.message
-      };
-    }
-  }
-
   // Complete custom domain setup workflow
   async processCustomDomainSetup(sessionId, userId, customDomain, dropletId, dropletService, emitWebhookEvent) {
     try {
       console.log(`Starting custom domain setup workflow for ${customDomain}`);
       
-      // Step 1: Check if custom domain is already in use by another droplet
-      console.log(`Step 1: Checking if custom domain ${customDomain} is already in use`);
-      const existingDroplet = await dropletService.getDropletByCustomDomain(customDomain);
-      
-      if (existingDroplet) {
-        const errorMessage = `Custom domain ${customDomain} is already in use by droplet ${existingDroplet.dropletId}`;
-        console.error(errorMessage);
-        
-        // Emit webhook event for frontend with error if function is provided
-        if (emitWebhookEvent && typeof emitWebhookEvent === 'function') {
-          emitWebhookEvent(userId, 'custom-domain-setup-failed', {
-            sessionId,
-            customDomain: customDomain,
-            error: errorMessage,
-            status: 'failed',
-            reason: 'domain_already_in_use',
-            existingDropletId: existingDroplet.dropletId
-          });
-        }
-        
-        throw new Error(errorMessage);
-      }
-      
-      console.log(`Custom domain ${customDomain} is available for use`);
-      
-      // Step 3: Get droplet IP address
-      console.log(`Step 3: Getting droplet IP address`);
-      let dropletIp;
+      // Step 1: Get droplet IP address and subdomain
+      console.log(`Step 1: Getting droplet IP address and subdomain`);
+      let dropletIp, subdomain;
       try {
         dropletIp = await this.getDropletPublicNetwork(dropletId);
         console.log(`Droplet ${dropletId} IP address: ${dropletIp}`);
+        
+        // Get droplet info to retrieve subdomain
+        const droplet = await dropletService.getDropletById(dropletId);
+        subdomain = droplet.subdomain;
+        console.log(`Droplet ${dropletId} subdomain: ${subdomain}`);
       } catch (ipError) {
         console.error('Error getting droplet IP:', ipError.message);
         throw new Error('Failed to get droplet IP address');
       }
       
-      // Step 4: Create DNS record in DigitalOcean
-      console.log(`Step 4: Creating DNS record in DigitalOcean`);
-      const dnsResult = await this.createCustomDomainDNS(customDomain, dropletIp);
-      
-      if (!dnsResult.success) {
-        throw new Error(`DNS record creation failed: ${dnsResult.message}`);
-      }
-      
-      console.log(`DNS record created successfully: ${dnsResult.message}`);
-      
-      // Step 5: Setup custom domain on the droplet
-      console.log(`Step 5: Setting up custom domain on droplet`);
-      const setupResult = await this.setupCustomDomain(dropletIp, customDomain);
+      // Step 2: Setup custom domain on the droplet
+      console.log(`Step 2: Setting up custom domain on droplet`);
+      const setupResult = await this.setupCustomDomain(dropletIp, customDomain, subdomain);
       
       if (setupResult.success) {
         console.log(`Custom domain ${customDomain} setup completed successfully`);
         
-        // Step 6: Update droplet record with custom domain
-        console.log(`Step 6: Updating droplet record with custom domain`);
+        // Step 3: Update droplet record with custom domain
+        console.log(`Step 3: Updating droplet record with custom domain`);
         try {
           await dropletService.updateDropletSubdomain(dropletId, customDomain);
           console.log(`Droplet ${dropletId} updated with custom domain ${customDomain}`);

@@ -200,6 +200,27 @@ class LogService {
     });
   }
 
+  // Log subdomain update
+  static async logDropletSubdomainUpdated(userId, dropletId, subdomainData) {
+    return await this.createLog({
+      level: 'success',
+      type: 'subdomain_updated',
+      message: `Droplet subdomain updated: ${subdomainData.subdomain}`,
+      details: {
+        subdomain: subdomainData.subdomain,
+        dropletId: dropletId,
+        previousSubdomain: subdomainData.previousSubdomain
+      },
+      status: 'completed',
+      userId: userId,
+      dropletId: dropletId,
+      metadata: {
+        action: 'subdomain_update',
+        timestamp: new Date()
+      }
+    });
+  }
+
   // Log error
   static async logError(errorData) {
     return await this.createLog({

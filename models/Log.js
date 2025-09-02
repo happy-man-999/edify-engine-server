@@ -15,7 +15,7 @@ const logSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['user_signup', 'user_created', 'user_updated', 'user_deleted', 'user_role_changed', 'purchase', 'transaction_created', 'droplet_created', 'droplet_restarted', 'droplet_terminated', 'droplet_reprovisioned', 'droplet_deleted', 'subdomain_assigned', 'settings_updated', 'error', 'webhook', 'provisioning'],
+    enum: ['user_signup', 'user_created', 'user_updated', 'user_deleted', 'user_role_changed', 'purchase', 'transaction_created', 'droplet_created', 'droplet_restarted', 'droplet_terminated', 'droplet_reprovisioned', 'droplet_deleted', 'subdomain_assigned', 'settings_updated', 'error', 'webhook', 'provisioning', 'subdomain_updated'],
     default: 'info'
   },
   message: {

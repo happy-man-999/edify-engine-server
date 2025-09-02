@@ -11,6 +11,7 @@ import signupProgress from './routes/signupProgress.js';
 import admin from './routes/admin.js';
 import items from './routes/items.js';
 import user from './routes/user.js';
+import dns from './routes/dns.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -72,6 +73,7 @@ app.use('/api/signup-progress', signupProgress);
 app.use('/api/admin', admin);
 app.use('/api/items', items);
 app.use('/api/user', user);
+app.use('/api/dns', dns);
 
 // Error handling middleware
 app.use((error, req, res, next) => {

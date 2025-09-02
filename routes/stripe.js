@@ -485,35 +485,6 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
           return res.status(400).json({ error: 'Custom domain is required for custom-domain purchase' });
         }
         
-        // Check if custom domain is already in use by another droplet
-        try {
-          const existingDroplet = await dropletService.getDropletByCustomDomain(customDomain);
-          if (existingDroplet) {
-            return res.status(400).json({ 
-              error: `Custom domain ${customDomain} is already in use by another droplet`,
-              reason: 'domain_already_in_use',
-              existingDropletId: existingDroplet.dropletId
-            });
-          }
-        } catch (domainCheckError) {
-          console.error('Error checking custom domain availability:', domainCheckError.message);
-          return res.status(500).json({ error: 'Failed to check custom domain availability' });
-        }
-        
-        // Log successful custom domain purchase
-        try {
-          await LogService.logPurchase(req.user._id, null, transaction._id, {
-            itemName: 'Custom Domain',
-            amount: amount,
-            paymentMethod: 'stripe',
-            signature: sessionId,
-            currency: currency,
-            customDomain: customDomain
-          });
-        } catch (logError) {
-          console.error('Error logging custom domain purchase:', logError);
-        }
-        
         // Start background processing for custom domain setup
         digitalOceanService.processCustomDomainSetup(sessionId, req.user._id, customDomain, dropletId, dropletService, emitWebhookEvent)
           .then((result) => {

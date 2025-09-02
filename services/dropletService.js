@@ -687,6 +687,7 @@ class DropletService {
 
       // Update subdomain
       droplet.subdomain = subdomain;
+      droplet.name = subdomain;
       await droplet.save();
       
       console.log(`Droplet ${dropletId} subdomain updated to: ${subdomain}`);
