@@ -62,19 +62,19 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create new item (admin only)
+// Create new item (admin and contributor only)
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    // Check if user is admin (you may need to implement admin check)
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({ error: 'Admin access required' });
-    // }
+    // Check if user is admin or contributor
+    if (req.user.role !== 'admin' && req.user.role !== 'contributor') {
+      return res.status(403).json({ error: 'Admin or contributor access required' });
+    }
     
     const item = new Item({
       ...req.body,
       creator: {
-        name: req.user.username || 'Admin',
-        id: req.user.id
+        name: `${req.user.firstName} ${req.user.lastName}`,
+        id: req.user._id
       }
     });
     

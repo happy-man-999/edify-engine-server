@@ -292,9 +292,9 @@ router.post('/users', async (req, res) => {
     }
 
     // Validate role
-    if (role && !['user', 'admin'].includes(role)) {
+    if (role && !['user', 'contributor', 'admin'].includes(role)) {
       return res.status(400).json({ 
-        message: 'Invalid role. Must be "user" or "admin"' 
+        message: 'Invalid role. Must be "user", "contributor", or "admin"' 
       });
     }
 
@@ -344,9 +344,9 @@ router.put('/users/:userId/role', async (req, res) => {
     const { userId } = req.params;
     const { role } = req.body;
 
-    if (!role || !['user', 'admin'].includes(role)) {
+    if (!role || !['user', 'contributor', 'admin'].includes(role)) {
       return res.status(400).json({ 
-        message: 'Invalid role. Must be "user" or "admin"' 
+        message: 'Invalid role. Must be "user", "contributor", or "admin"' 
       });
     }
 
@@ -426,9 +426,9 @@ router.put('/users/:userId', async (req, res) => {
     }
 
     // Validate role
-    if (role && !['user', 'admin'].includes(role)) {
+    if (role && !['user', 'contributor', 'admin'].includes(role)) {
       return res.status(400).json({ 
-        message: 'Invalid role. Must be "user" or "admin"' 
+        message: 'Invalid role. Must be "user", "contributor", or "admin"' 
       });
     }
 
