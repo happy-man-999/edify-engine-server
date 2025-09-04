@@ -169,11 +169,6 @@ router.post('/', authenticateToken, upload.fields([
         tagsArray = tags.split(',').map(t => t.trim()).filter(t => t);
       }
     }
-    const reservedTags = ['premium', 'staffpick', 'onsale'];
-    const hasReservedTag = tagsArray.some(tag => reservedTags.includes(tag.toLowerCase()));
-    if (hasReservedTag && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can use reserved tags: premium, staffPick, onSale' });
-    }
     
     // Validate visibility
     const validVisibility = ['featured', 'limitedEdition', 'private'];
