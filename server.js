@@ -66,6 +66,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Middleware to ensure API responses are JSON
+app.use('/api', (req, res, next) => {
+  // Set default content-type for API routes
+  res.setHeader('Content-Type', 'application/json');
+  next();
+});
+
 app.use('/api/auth', auth);
 app.use('/api/solana', solana);
 app.use('/api/stripe', stripe);
@@ -78,11 +85,19 @@ app.use('/api/dns', dns);
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: error.message,
-    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-  });
+  
+  // Ensure we always return JSON for API routes
+  if (req.path.startsWith('/api/')) {
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message,
+      type: 'server_error',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  } else {
+    // For non-API routes, you might want to handle differently
+    res.status(500).send('Internal Server Error');
+  }
 });
 
 // Catch-all for React Router paths (must be after API routes)

@@ -109,31 +109,65 @@ router.post('/', authenticateToken, upload.fields([
       return res.status(400).json({ error: '3D scene assets are required for 3D objects' });
     }
     
+    // Check DigitalOcean Spaces configuration
+    if (!process.env.DO_SPACES_ACCESS_KEY || !process.env.DO_SPACES_SECRET_KEY || 
+        !process.env.DO_SPACES_ITEMS_BUCKET_NAME || !process.env.DO_SPACES_ITEMS_BUCKET_URL) {
+      console.error('DigitalOcean Spaces configuration missing');
+      return res.status(500).json({ 
+        error: 'File upload service not configured. Please contact administrator.',
+        details: 'DigitalOcean Spaces environment variables are missing'
+      });
+    }
+    
     let coverImageUrl = '';
     let sceneAssetsUrl = '';
     
     // Upload cover image
-    const coverImageResult = await DigitalOceanSpacesService.uploadFile(
-      files.coverImage[0], 
-      'cover-images'
-    );
-    
-    if (!coverImageResult.success) {
-      return res.status(500).json({ error: 'Failed to upload cover image: ' + coverImageResult.error });
+    try {
+      const coverImageResult = await DigitalOceanSpacesService.uploadFile(
+        files.coverImage[0], 
+        'cover-images'
+      );
+      
+      if (!coverImageResult.success) {
+        console.error('Cover image upload failed:', coverImageResult.error);
+        return res.status(500).json({ 
+          error: 'Failed to upload cover image', 
+          details: coverImageResult.error 
+        });
+      }
+      coverImageUrl = coverImageResult.url;
+    } catch (uploadError) {
+      console.error('Cover image upload error:', uploadError);
+      return res.status(500).json({ 
+        error: 'Failed to upload cover image', 
+        details: uploadError.message 
+      });
     }
-    coverImageUrl = coverImageResult.url;
     
     // Upload scene assets for 3D objects
     if (type === '3d-object' && files.sceneAssets) {
-      const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
-        files.sceneAssets[0], 
-        '3d-objects'
-      );
-      
-      if (!sceneAssetsResult.success) {
-        return res.status(500).json({ error: 'Failed to upload 3D scene assets: ' + sceneAssetsResult.error });
+      try {
+        const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
+          files.sceneAssets[0], 
+          '3d-objects'
+        );
+        
+        if (!sceneAssetsResult.success) {
+          console.error('3D scene assets upload failed:', sceneAssetsResult.error);
+          return res.status(500).json({ 
+            error: 'Failed to upload 3D scene assets', 
+            details: sceneAssetsResult.error 
+          });
+        }
+        sceneAssetsUrl = sceneAssetsResult.url;
+      } catch (uploadError) {
+        console.error('3D scene assets upload error:', uploadError);
+        return res.status(500).json({ 
+          error: 'Failed to upload 3D scene assets', 
+          details: uploadError.message 
+        });
       }
-      sceneAssetsUrl = sceneAssetsResult.url;
     }
     
     // Create item object
@@ -164,7 +198,11 @@ router.post('/', authenticateToken, upload.fields([
     });
   } catch (error) {
     console.error('Item creation error:', error);
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      details: error.message,
+      type: 'server_error'
+    });
   }
 });
 
