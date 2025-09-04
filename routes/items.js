@@ -6,6 +6,15 @@ import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js'
 
 const router = express.Router();
 
+// Helper function to format file size
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -95,12 +104,81 @@ router.post('/', authenticateToken, upload.fields([
       return res.status(403).json({ error: 'Admin or contributor access required' });
     }
     
-    const { title, description, type, priceUSD } = req.body;
+    const { 
+      title, 
+      description, 
+      type, 
+      category,
+      priceUSD, 
+      features, 
+      tags, 
+      platforms, 
+      visibility, 
+      installationInstructions 
+    } = req.body;
     const files = req.files;
     
     // Validate required fields
-    if (!title || !description || !type || !priceUSD) {
-      return res.status(400).json({ error: 'Title, description, type, and price are required' });
+    if (!title || !description || !type || !category || !priceUSD || !platforms) {
+      return res.status(400).json({ error: 'Title, description, type, category, price, and platforms are required' });
+    }
+    
+    // Parse and validate platforms array
+    const validPlatforms = ['desktop', 'mobile', 'vr'];
+    let platformsArray = [];
+    if (platforms) {
+      try {
+        platformsArray = typeof platforms === 'string' ? JSON.parse(platforms) : platforms;
+        if (!Array.isArray(platformsArray)) {
+          platformsArray = [platforms];
+        }
+      } catch (e) {
+        platformsArray = [platforms];
+      }
+    }
+    const invalidPlatforms = platformsArray.filter(platform => !validPlatforms.includes(platform));
+    if (invalidPlatforms.length > 0) {
+      return res.status(400).json({ error: `Invalid platforms: ${invalidPlatforms.join(', ')}. Valid platforms are: ${validPlatforms.join(', ')}` });
+    }
+    
+    // Parse and validate features (max 5)
+    let featuresArray = [];
+    if (features) {
+      try {
+        featuresArray = typeof features === 'string' ? JSON.parse(features) : features;
+        if (!Array.isArray(featuresArray)) {
+          featuresArray = features.split(',').map(f => f.trim()).filter(f => f);
+        }
+      } catch (e) {
+        featuresArray = features.split(',').map(f => f.trim()).filter(f => f);
+      }
+    }
+    if (featuresArray.length > 5) {
+      return res.status(400).json({ error: 'Maximum 5 features allowed' });
+    }
+    
+    // Parse and validate tags and check for reserved tags
+    let tagsArray = [];
+    if (tags) {
+      try {
+        tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+        if (!Array.isArray(tagsArray)) {
+          tagsArray = tags.split(',').map(t => t.trim()).filter(t => t);
+        }
+      } catch (e) {
+        tagsArray = tags.split(',').map(t => t.trim()).filter(t => t);
+      }
+    }
+    const reservedTags = ['premium', 'staffpick', 'onsale'];
+    const hasReservedTag = tagsArray.some(tag => reservedTags.includes(tag.toLowerCase()));
+    if (hasReservedTag && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can use reserved tags: premium, staffPick, onSale' });
+    }
+    
+    // Validate visibility
+    const validVisibility = ['featured', 'limitedEdition', 'private'];
+    if (visibility && !validVisibility.includes(visibility)) {
+      return res.status(400).json({ error: `Invalid visibility. Valid options are: ${validVisibility.join(', ')}` });
     }
     
     // Validate required files
@@ -205,13 +283,30 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
     
+    // Calculate file size for the main file (download assets for 3D objects, cover image for others)
+    let fileSize = '0 MB';
+    if (type === '3d-object' && files.downloadAssets) {
+      const sizeInBytes = files.downloadAssets[0].size;
+      fileSize = formatFileSize(sizeInBytes);
+    } else if (files.coverImage) {
+      const sizeInBytes = files.coverImage[0].size;
+      fileSize = formatFileSize(sizeInBytes);
+    }
+    
     // Create item object
     const itemData = {
       title,
       description,
       type,
+      category,
       priceUSD: parseFloat(priceUSD),
       image: coverImageUrl,
+      fileSize,
+      features: featuresArray,
+      tags: tagsArray,
+      supportedPlatforms: platformsArray,
+      visibility: visibility || 'private',
+      installationInstructions: installationInstructions || '',
       creator: {
         name: `${req.user.firstName} ${req.user.lastName}`,
         id: req.user._id

@@ -22,7 +22,7 @@ const itemSchema = new mongoose.Schema({
   category: {
     type: String,
     enum: ['gaming', 'education', 'business', 'entertainment', 'social', 'creative', 'other'],
-    default: 'other'
+    required: true
   },
   
   // Pricing
@@ -31,30 +31,16 @@ const itemSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  priceSOL: {
-    type: Number,
-    min: 0
-  },
-  originalPrice: {
-    type: Number,
-    min: 0
-  },
   discount: {
     type: Number,
     min: 0,
     max: 100
   },
   
-  // Media and assets
+  // Media
   image: {
     type: String,
     required: true
-  },
-  images: [{
-    type: String
-  }],
-  video: {
-    type: String
   },
   // 3D Object specific fields
   sceneAssets: {
@@ -81,31 +67,19 @@ const itemSchema = new mongoose.Schema({
   features: [{
     type: String
   }],
-  requirements: {
-    type: String
-  },
   fileSize: {
-    type: String
-  },
-  version: {
-    type: String
-  },
-  downloadUrl: {
-    type: String
-  },
-  license: {
     type: String,
-    enum: ['free', 'personal', 'commercial', 'enterprise', 'custom'],
-    default: 'personal'
+    required: true
   },
   supportedPlatforms: [{
     type: String,
-    enum: ['web', 'windows', 'mac', 'linux', 'mobile', 'vr']
+    enum: ['desktop', 'mobile', 'vr'],
+    required: true
   }],
-  updateFrequency: {
-    type: String,
-    enum: ['monthly', 'quarterly', 'biannual', 'annual', 'on-demand'],
-    default: 'quarterly'
+
+  // File & technical info
+  installationInstructions: {
+    type: String
   },
   
   // Bundle specific fields
@@ -145,12 +119,15 @@ const itemSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  visibility: {
+    type: String,
+    enum: ['featured', 'limitedEdition', 'private'],
+    required: true,
+    default: 'private'
+  },
   
   // SEO and metadata
   tags: [{
-    type: String
-  }],
-  keywords: [{
     type: String
   }],
   
@@ -173,29 +150,17 @@ const itemSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }
-  },
-  
-  // Digital product specific fields
-  installationInstructions: {
-    type: String
-  },
-  changelog: [{
-    version: String,
-    date: Date,
-    changes: [String]
-  }],
-  supportChannels: [{
-    type: String,
-    enum: ['email', 'chat', 'forum', 'documentation', 'video-tutorials', 'priority-support']
-  }],
-  demoUrl: {
-    type: String
-  },
-  documentationUrl: {
-    type: String
   }
 }, {
   timestamps: true
+});
+
+// Custom validation for features array (max 5 features)
+itemSchema.pre('validate', function(next) {
+  if (this.features && this.features.length > 5) {
+    return next(new Error('Maximum 5 features allowed'));
+  }
+  next();
 });
 
 // Indexes for better query performance
