@@ -16,7 +16,7 @@ const itemSchema = new mongoose.Schema({
   // Item type and category
   type: {
     type: String,
-    enum: ['app', 'bundle', 'template', 'world', 'asset', 'service'],
+    enum: ['app', 'bundle', 'template', 'world', 'asset', 'service', '3d-object'],
     required: true
   },
   category: {
@@ -55,6 +55,9 @@ const itemSchema = new mongoose.Schema({
   }],
   video: {
     type: String
+  },
+  sceneAssets: {
+    type: String // URL to the 3D scene assets stored in Digital Ocean Spaces
   },
   
   // Ratings and reviews
