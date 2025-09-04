@@ -56,8 +56,12 @@ const itemSchema = new mongoose.Schema({
   video: {
     type: String
   },
+  // 3D Object specific fields
   sceneAssets: {
-    type: String // URL to the 3D scene assets stored in Digital Ocean Spaces
+    type: String // URL to the 3D scene assets stored in Digital Ocean Spaces (GLB file for preview)
+  },
+  downloadAssets: {
+    type: String // URL to the downloadable assets stored in Digital Ocean Spaces (HYP file for download)
   },
   
   // Ratings and reviews

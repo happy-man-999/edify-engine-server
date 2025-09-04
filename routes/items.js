@@ -13,11 +13,14 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit
   },
   fileFilter: (req, file, cb) => {
-    // Allow images and GLB files
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'model/gltf-binary' || file.originalname.endsWith('.glb')) {
+    // Allow images, GLB files, and HYP files
+    if (file.mimetype.startsWith('image/') || 
+        file.mimetype === 'model/gltf-binary' || 
+        file.originalname.endsWith('.glb') ||
+        file.originalname.endsWith('.hyp')) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files and GLB files are allowed'), false);
+      cb(new Error('Only image files, GLB files, and HYP files are allowed'), false);
     }
   }
 });
@@ -83,7 +86,8 @@ router.get('/:id', async (req, res) => {
 // Create new item (admin and contributor only)
 router.post('/', authenticateToken, upload.fields([
   { name: 'coverImage', maxCount: 1 },
-  { name: 'sceneAssets', maxCount: 1 }
+  { name: 'sceneAssets', maxCount: 1 },
+  { name: 'downloadAssets', maxCount: 1 }
 ]), async (req, res) => {
   try {
     // Check if user is admin or contributor
@@ -104,9 +108,14 @@ router.post('/', authenticateToken, upload.fields([
       return res.status(400).json({ error: 'Cover image is required' });
     }
     
-    // For 3D objects, scene assets are required
-    if (type === '3d-object' && (!files.sceneAssets || files.sceneAssets.length === 0)) {
-      return res.status(400).json({ error: '3D scene assets are required for 3D objects' });
+    // For 3D objects, both scene assets (GLB) and download assets (HYP) are required
+    if (type === '3d-object') {
+      if (!files.sceneAssets || files.sceneAssets.length === 0) {
+        return res.status(400).json({ error: '3D scene assets (GLB file) are required for 3D objects' });
+      }
+      if (!files.downloadAssets || files.downloadAssets.length === 0) {
+        return res.status(400).json({ error: 'Download assets (HYP file) are required for 3D objects' });
+      }
     }
     
     // Check DigitalOcean Spaces configuration
@@ -121,6 +130,7 @@ router.post('/', authenticateToken, upload.fields([
     
     let coverImageUrl = '';
     let sceneAssetsUrl = '';
+    let downloadAssetsUrl = '';
     
     // Upload cover image
     try {
@@ -145,7 +155,7 @@ router.post('/', authenticateToken, upload.fields([
       });
     }
     
-    // Upload scene assets for 3D objects
+    // Upload scene assets for 3D objects (GLB file for preview)
     if (type === '3d-object' && files.sceneAssets) {
       try {
         const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
@@ -170,6 +180,31 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
     
+    // Upload download assets for 3D objects (HYP file for download)
+    if (type === '3d-object' && files.downloadAssets) {
+      try {
+        const downloadAssetsResult = await DigitalOceanSpacesService.uploadFile(
+          files.downloadAssets[0], 
+          '3d-objects'
+        );
+        
+        if (!downloadAssetsResult.success) {
+          console.error('3D download assets upload failed:', downloadAssetsResult.error);
+          return res.status(500).json({ 
+            error: 'Failed to upload 3D download assets', 
+            details: downloadAssetsResult.error 
+          });
+        }
+        downloadAssetsUrl = downloadAssetsResult.url;
+      } catch (uploadError) {
+        console.error('3D download assets upload error:', uploadError);
+        return res.status(500).json({ 
+          error: 'Failed to upload 3D download assets', 
+          details: uploadError.message 
+        });
+      }
+    }
+    
     // Create item object
     const itemData = {
       title,
@@ -183,9 +218,14 @@ router.post('/', authenticateToken, upload.fields([
       }
     };
     
-    // Add scene assets URL for 3D objects
+    // Add scene assets URL for 3D objects (GLB file for preview)
     if (type === '3d-object' && sceneAssetsUrl) {
       itemData.sceneAssets = sceneAssetsUrl;
+    }
+    
+    // Add download assets URL for 3D objects (HYP file for download)
+    if (type === '3d-object' && downloadAssetsUrl) {
+      itemData.downloadAssets = downloadAssetsUrl;
     }
     
     const item = new Item(itemData);
