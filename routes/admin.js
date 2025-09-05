@@ -3,6 +3,7 @@ import express from 'express';
 import { requireAdmin } from '../middleware/admin.js';
 import { authenticateToken } from '../middleware/auth.js';
 import User from '../models/User.js';
+import Item from '../models/Item.js';
 import Settings from '../models/Settings.js';
 import Action from '../models/Action.js';
 import TransactionService from '../services/transactionService.js';
@@ -1168,6 +1169,150 @@ router.post('/update-snapshot', async (req, res) => {
     console.error('Error updating snapshot:', error);
     res.status(500).json({ 
       message: 'Failed to update snapshot',
+      error: error.message 
+    });
+  }
+});
+
+// ==================== ITEMS MANAGEMENT ====================
+
+// Get all items for admin management
+router.get('/items', requireAdmin, async (req, res) => {
+  try {
+    const { status, page = 1, limit = 50, search } = req.query;
+    
+    let query = {};
+    
+    // Filter by status if provided
+    if (status && ['unapproved', 'approved', 'rejected'].includes(status)) {
+      query.status = status;
+    }
+    
+    // Search functionality
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { 'creator.name': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const skip = (page - 1) * limit;
+    
+    const items = await Item.find(query)
+      .populate('creator.id', 'firstName lastName email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await Item.countDocuments(query);
+    
+    res.json({
+      items,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching items:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch items',
+      error: error.message 
+    });
+  }
+});
+
+// Update item status (approve/reject)
+router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { status } = req.body;
+    
+    // Validate status
+    if (!['unapproved', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ 
+        message: 'Invalid status. Must be unapproved, approved, or rejected' 
+      });
+    }
+    
+    const item = await Item.findById(itemId);
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
+    
+    const oldStatus = item.status;
+    item.status = status;
+    await item.save();
+    
+    // Log the status change
+    try {
+      await LogService.logAction({
+        type: 'item_status_changed',
+        message: `Item "${item.title}" status changed from ${oldStatus} to ${status}`,
+        details: {
+          itemId: item._id,
+          itemTitle: item.title,
+          oldStatus,
+          newStatus: status,
+          changedBy: req.user._id
+        },
+        userId: req.user._id,
+        itemId: item._id
+      });
+    } catch (logError) {
+      console.error('Error logging status change:', logError);
+    }
+    
+    res.json({ 
+      message: `Item ${status} successfully`,
+      item: {
+        _id: item._id,
+        title: item.title,
+        status: item.status,
+        creator: item.creator
+      }
+    });
+  } catch (error) {
+    console.error('Error updating item status:', error);
+    res.status(500).json({ 
+      message: 'Failed to update item status',
+      error: error.message 
+    });
+  }
+});
+
+// Get item statistics for admin dashboard
+router.get('/items/stats', requireAdmin, async (req, res) => {
+  try {
+    const totalItems = await Item.countDocuments();
+    const unapprovedItems = await Item.countDocuments({ status: 'unapproved' });
+    const approvedItems = await Item.countDocuments({ status: 'approved' });
+    const rejectedItems = await Item.countDocuments({ status: 'rejected' });
+    
+    // Recent items (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentItems = await Item.countDocuments({
+      createdAt: { $gte: thirtyDaysAgo }
+    });
+    
+    res.json({
+      stats: {
+        totalItems,
+        unapprovedItems,
+        approvedItems,
+        rejectedItems,
+        recentItems
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching item stats:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch item statistics',
       error: error.message 
     });
   }

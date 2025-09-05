@@ -150,6 +150,13 @@ const itemSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }
+  },
+  
+  // Approval status
+  status: {
+    type: String,
+    enum: ['unapproved', 'approved', 'rejected'],
+    default: 'unapproved'
   }
 }, {
   timestamps: true

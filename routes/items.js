@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
   try {
     const { type, category, featured, limit = 50, page = 1, search } = req.query;
     
-    let query = { isActive: true };
+    let query = { isActive: true, status: 'approved' };
     
     if (type) query.type = type;
     if (category) query.category = category;
@@ -305,7 +305,9 @@ router.post('/', authenticateToken, upload.fields([
       creator: {
         name: `${req.user.firstName} ${req.user.lastName}`,
         id: req.user._id
-      }
+      },
+      // Set status based on user role: admin items are auto-approved, contributor items need approval
+      status: req.user.role === 'admin' ? 'approved' : 'unapproved'
     };
     
     // Add scene assets URL for 3D objects (GLB file for preview)
@@ -385,7 +387,8 @@ router.get('/featured/items', async (req, res) => {
   try {
     const featuredItems = await Item.find({ 
       isActive: true, 
-      isFeatured: true 
+      isFeatured: true,
+      status: 'approved'
     }).sort({ rating: -1, salesCount: -1 });
     
     res.json(featuredItems);
@@ -399,7 +402,8 @@ router.get('/type/:type', async (req, res) => {
   try {
     const items = await Item.find({ 
       type: req.params.type, 
-      isActive: true 
+      isActive: true,
+      status: 'approved'
     }).sort({ rating: -1, salesCount: -1 });
     
     res.json(items);
@@ -413,7 +417,8 @@ router.get('/search/:query', async (req, res) => {
   try {
     const items = await Item.find({
       $text: { $search: req.params.query },
-      isActive: true
+      isActive: true,
+      status: 'approved'
     }).sort({ score: { $meta: 'textScore' } });
     
     res.json(items);
