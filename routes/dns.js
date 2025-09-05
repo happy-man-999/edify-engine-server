@@ -1,5 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import https from 'https';
 import Droplet from '../models/Droplet.js';
 
 dotenv.config();
@@ -22,9 +23,15 @@ router.get('/check-health', async (req, res) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
+    // Create an insecure HTTPS agent (equivalent to curl --insecure)
+    const insecureAgent = new https.Agent({
+      rejectUnauthorized: false
+    });
+
     const response = await fetch(healthUrl, {
       method: 'GET',
       signal: controller.signal,
+      agent: insecureAgent,
     });
 
     clearTimeout(timeoutId);
