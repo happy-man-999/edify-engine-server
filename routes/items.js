@@ -3,6 +3,9 @@ import multer from 'multer';
 import Item from '../models/Item.js';
 import { authenticateToken } from '../middleware/auth.js';
 import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 
@@ -424,6 +427,47 @@ router.get('/search/:query', async (req, res) => {
     res.json(items);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get signed URL for 3D model file
+router.get('/signed-url-3d/:itemId', async (req, res) => {
+  try {
+    const item = await Item.findById(req.params.itemId);
+    
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    
+    if (!item.sceneAssets) {
+      return res.status(404).json({ error: 'No 3D model available for this item' });
+    }
+    
+    // Extract the key from the sceneAssets URL
+    let key;
+    if (item.sceneAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_NAME)) {
+      // Extract key from full URL
+      const urlParts = item.sceneAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_NAME}/`);
+      key = urlParts[1];
+    } else {
+      // Assume it's already a key
+      key = item.sceneAssets;
+    }
+
+    console.log('Key:', key);
+    
+    // Generate signed URL (expires in 1 hour)
+    const signedUrl = await DigitalOceanSpacesService.getSignedUrl(key, 30);
+    
+    res.json({
+      success: true,
+      signedUrl: signedUrl,
+      expiresIn: 3600
+    });
+    
+  } catch (error) {
+    console.error('Error generating signed URL for 3D model:', error);
+    res.status(500).json({ error: 'Failed to generate signed URL' });
   }
 });
 
