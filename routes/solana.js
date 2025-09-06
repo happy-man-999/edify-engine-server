@@ -3,10 +3,12 @@ import SolanaService from '../services/solanaService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
+import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import LogService from '../services/logService.js';
+import settingsRefreshService from '../services/settingsRefreshService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
-import settingsRefreshService from '../services/settingsRefreshService.js';
+import Item from '../models/Item.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -169,12 +171,42 @@ router.post('/payment-success', async (req, res) => {
         transactionId: transaction._id
       });
     } else if (isItemPurchase) {
-      // Handle item purchase - no droplet creation needed
-      return res.status(200).json({ 
-        message: 'Item purchase transaction processed successfully',
-        itemType: 'item-purchase',
-        itemId: txInfo.itemId
-      });
+      let item;
+      try {
+        item = await Item.findById(txInfo.itemId);
+      } catch (error) {
+        console.error('Error finding item:', error);
+      }
+
+      if (item) {
+        try {
+          let key;
+          if (item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+            // Extract key from full URL
+            const urlParts = item.downloadAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+            key = urlParts[1];
+          } else {
+            // Assume it's already a key
+            key = item.downloadAssets;
+          }
+          const downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Item purchase transaction processed successfully',
+            itemType: 'item-purchase',
+            itemId: txInfo.itemId,
+            itemName: txInfo.itemName,
+            downloadUrl
+          });
+        } catch (error) {
+          console.error('Error getting signed url:', error);
+          res.status(500).json({ error: 'Failed to get signed url' });
+        }
+      }
+      else {
+        res.status(400).json({ error: 'Item not found' });
+      }
     } else {
       // Handle plan or other types
       return res.status(200).json({ 

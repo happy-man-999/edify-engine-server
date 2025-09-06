@@ -5,11 +5,13 @@ import LogService from '../services/logService.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
+import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import stripeService from '../services/stripeService.js';
 import User from '../models/User.js';
 import dotenv from 'dotenv';
+import Item from '../models/Item.js';
 
 dotenv.config();
 
@@ -528,14 +530,43 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       } catch (logError) {
         console.error('Error logging purchase:', logError);
       }
-      
-      res.json({ 
-        success: true, 
-        message: 'Item purchase payment completed',
-        itemType: 'item-purchase',
-        itemId: itemId,
-        itemName: itemName
-      });
+
+      let item;
+      try {
+        item = await Item.findById(itemId);
+      } catch (error) {
+        console.error('Error finding item:', error);
+      }
+
+      if (item) {
+        try {
+          let key;
+          if (item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+            // Extract key from full URL
+            const urlParts = item.downloadAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+            key = urlParts[1];
+          } else {
+            // Assume it's already a key
+            key = item.downloadAssets;
+          }
+          const downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
+
+          res.json({ 
+            success: true, 
+            message: 'Item purchase payment completed',
+            itemType: 'item-purchase',
+            itemId: itemId,
+            itemName: itemName,
+            downloadUrl
+          });
+        } catch (error) {
+          console.error('Error getting signed url:', error);
+          res.status(500).json({ error: 'Failed to get signed url' });
+        }
+      }
+      else {
+        res.status(400).json({ error: 'Item not found' });
+      }
     } else {
       // Unknown item type
       console.log(`Unknown payment type for user ${req.user._id}, sessionId: ${sessionId}, amount: ${amount}`);

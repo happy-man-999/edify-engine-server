@@ -54,6 +54,7 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
     
     const items = await Item.find(query)
+      .select('-downloadAssets')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -79,6 +80,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const item = await Item.findById(req.params.id)
+      .select('-downloadAssets')
       .populate('creator.id', 'username email')
       .populate('bundleItems.itemId');
     
@@ -392,7 +394,9 @@ router.get('/featured/items', async (req, res) => {
       isActive: true, 
       isFeatured: true,
       status: 'approved'
-    }).sort({ rating: -1, salesCount: -1 });
+    })
+    .select('-downloadAssets')
+    .sort({ rating: -1, salesCount: -1 });
     
     res.json(featuredItems);
   } catch (error) {
@@ -407,7 +411,9 @@ router.get('/type/:type', async (req, res) => {
       type: req.params.type, 
       isActive: true,
       status: 'approved'
-    }).sort({ rating: -1, salesCount: -1 });
+    })
+    .select('-downloadAssets')
+    .sort({ rating: -1, salesCount: -1 });
     
     res.json(items);
   } catch (error) {
@@ -422,7 +428,9 @@ router.get('/search/:query', async (req, res) => {
       $text: { $search: req.params.query },
       isActive: true,
       status: 'approved'
-    }).sort({ score: { $meta: 'textScore' } });
+    })
+    .select('-downloadAssets')
+    .sort({ score: { $meta: 'textScore' } });
     
     res.json(items);
   } catch (error) {
@@ -453,8 +461,6 @@ router.get('/signed-url-3d/:itemId', async (req, res) => {
       // Assume it's already a key
       key = item.sceneAssets;
     }
-
-    console.log('Key:', key);
     
     // Generate signed URL (expires in 1 hour)
     const signedUrl = await DigitalOceanSpacesService.getSignedUrl(key, 30);
