@@ -24,6 +24,37 @@ router.get('/test', (req, res) => {
   res.json({ message: 'Solana route is working', timestamp: new Date().toISOString() });
 });
 
+// Get SOL price from Binance US API
+router.get('/sol-price', async (req, res) => {
+  try {
+    const response = await fetch('https://api.binance.us/api/v3/ticker/price?symbol=SOLUSDT');
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch SOL price from Binance US');
+    }
+    
+    const data = await response.json();
+    
+    if (!data.price) {
+      throw new Error('Invalid response format from Binance US');
+    }
+    
+    res.json({
+      success: true,
+      price: parseFloat(data.price),
+      currency: 'USD',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching SOL price:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch SOL price',
+      message: error.message
+    });
+  }
+});
+
 router.post('/payment-success', async (req, res) => {
   try {
     const { signature } = req.body;
