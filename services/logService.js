@@ -520,6 +520,25 @@ class LogService {
       }
     });
   }
+
+  // Generic action logger
+  static async logAction(actionData) {
+    return await this.createLog({
+      level: actionData.level || 'info',
+      type: actionData.type,
+      message: actionData.message,
+      details: actionData.details || {},
+      status: actionData.status || 'completed',
+      userId: actionData.userId,
+      itemId: actionData.itemId,
+      transactionId: actionData.transactionId,
+      dropletId: actionData.dropletId,
+      metadata: {
+        ...actionData.metadata,
+        timestamp: new Date()
+      }
+    });
+  }
 }
 
 export default LogService; 

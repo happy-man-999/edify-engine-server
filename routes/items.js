@@ -453,9 +453,9 @@ router.get('/signed-url-3d/:itemId', async (req, res) => {
     
     // Extract the key from the sceneAssets URL
     let key;
-    if (item.sceneAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_NAME)) {
+    if (item.sceneAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
       // Extract key from full URL
-      const urlParts = item.sceneAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_NAME}/`);
+      const urlParts = item.sceneAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
       key = urlParts[1];
     } else {
       // Assume it's already a key

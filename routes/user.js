@@ -3,8 +3,11 @@ import { authenticateToken } from '../middleware/auth.js';
 import Droplet from '../models/Droplet.js';
 import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
+import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import Action from '../models/Action.js';
 import User from '../models/User.js';
+import Transaction from '../models/Transaction.js';
+import Item from '../models/Item.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -263,6 +266,147 @@ router.get('/actions', authenticateToken, async (req, res) => {
     console.error('Error fetching user actions:', error);
     res.status(500).json({ 
       message: 'Failed to fetch user actions',
+      error: error.message 
+    });
+  }
+});
+
+// Get user's purchased items
+router.get('/purchases', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get successful transactions with item purchases
+    const transactions = await Transaction.find({
+      user: userId,
+      status: 'success',
+      itemType: 'item-purchase',
+      item: { $exists: true, $ne: null }
+    })
+    .populate('item', 'title description type category priceUSD image fileSize features tags supportedPlatforms sceneAssets downloadAssets creator')
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+    
+    // Get total count for pagination
+    const total = await Transaction.countDocuments({
+      user: userId,
+      status: 'success',
+      itemType: 'item-purchase',
+      item: { $exists: true, $ne: null }
+    });
+    
+    // Format the response
+    const purchases = transactions.map(transaction => ({
+      id: transaction._id,
+      transactionId: transaction.signature,
+      item: transaction.item,
+      purchaseDate: transaction.date,
+      amount: transaction.amount,
+      paymentMethod: transaction.paymentMethod,
+      currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD'
+    }));
+    
+    res.json({
+      success: true,
+      purchases,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user purchases:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch user purchases',
+      error: error.message 
+    });
+  }
+});
+
+// Get download URL for a purchased item
+router.get('/purchases/:transactionId/download', authenticateToken, async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const userId = req.user._id;
+    
+    // Find the transaction and verify ownership
+    const transaction = await Transaction.findOne({
+      signature: transactionId,
+      user: userId,
+      status: 'success',
+      itemType: 'item-purchase'
+    }).populate('item');
+    
+    if (!transaction) {
+      return res.status(404).json({ 
+        message: 'Purchase not found or access denied' 
+      });
+    }
+    
+    if (!transaction.item) {
+      return res.status(404).json({ 
+        message: 'Item not found' 
+      });
+    }
+    
+    // Generate signed download URL
+    try {
+      let key;
+      let downloadUrl;
+      
+      if (transaction.item.downloadAssets) {
+        // For 3D objects, use downloadAssets
+        if (transaction.item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+          // Extract key from full URL
+          const urlParts = transaction.item.downloadAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+          key = urlParts[1];
+        } else {
+          // Assume it's already a key
+          key = transaction.item.downloadAssets;
+        }
+        downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
+        
+        res.json({
+          success: true,
+          downloadUrl,
+          itemName: transaction.item.title,
+          fileType: 'HYP'
+        });
+      } else {
+        // For other item types, use image or other assets
+        if (transaction.item.image && transaction.item.image.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+          // Extract key from full URL
+          const urlParts = transaction.item.image.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+          key = urlParts[1];
+          downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
+        } else {
+          // Fallback to direct URL
+          downloadUrl = transaction.item.image;
+        }
+        
+        res.json({
+          success: true,
+          downloadUrl,
+          itemName: transaction.item.title,
+          fileType: 'Image'
+        });
+      }
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      res.status(500).json({ 
+        message: 'Failed to generate download URL',
+        error: error.message 
+      });
+    }
+  } catch (error) {
+    console.error('Error getting download URL:', error);
+    res.status(500).json({ 
+      message: 'Failed to get download URL',
       error: error.message 
     });
   }
