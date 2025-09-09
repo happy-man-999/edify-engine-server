@@ -186,13 +186,21 @@ router.post('/', authenticateToken, upload.fields([
       return res.status(400).json({ error: 'Cover image is required' });
     }
     
-    // For 3D objects, both scene assets (GLB) and download assets (HYP) are required
-    if (type === '3d-object') {
+    // For 3D objects and apps, both scene assets (GLB) and download assets (HYP) are required
+    if (type === '3d-object' || type === 'app') {
       if (!files.sceneAssets || files.sceneAssets.length === 0) {
-        return res.status(400).json({ error: '3D scene assets (GLB file) are required for 3D objects' });
+        return res.status(400).json({ 
+          error: type === '3d-object' 
+            ? '3D scene assets (GLB file) are required for 3D objects'
+            : 'Application preview assets (GLB file) are required for applications'
+        });
       }
       if (!files.downloadAssets || files.downloadAssets.length === 0) {
-        return res.status(400).json({ error: 'Download assets (HYP file) are required for 3D objects' });
+        return res.status(400).json({ 
+          error: type === '3d-object'
+            ? 'Download assets (HYP file) are required for 3D objects'
+            : 'Download assets (HYP file) are required for applications'
+        });
       }
     }
     
@@ -233,59 +241,61 @@ router.post('/', authenticateToken, upload.fields([
       });
     }
     
-    // Upload scene assets for 3D objects (GLB file for preview)
-    if (type === '3d-object' && files.sceneAssets) {
+    // Upload scene assets for 3D objects and apps (GLB file for preview)
+    if ((type === '3d-object' || type === 'app') && files.sceneAssets) {
       try {
+        const folderName = type === '3d-object' ? '3d-objects' : 'apps';
         const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
           files.sceneAssets[0], 
-          '3d-objects'
+          folderName
         );
         
         if (!sceneAssetsResult.success) {
-          console.error('3D scene assets upload failed:', sceneAssetsResult.error);
+          console.error(`${type} scene assets upload failed:`, sceneAssetsResult.error);
           return res.status(500).json({ 
-            error: 'Failed to upload 3D scene assets', 
+            error: `Failed to upload ${type} scene assets`, 
             details: sceneAssetsResult.error 
           });
         }
         sceneAssetsUrl = sceneAssetsResult.url;
       } catch (uploadError) {
-        console.error('3D scene assets upload error:', uploadError);
+        console.error(`${type} scene assets upload error:`, uploadError);
         return res.status(500).json({ 
-          error: 'Failed to upload 3D scene assets', 
+          error: `Failed to upload ${type} scene assets`, 
           details: uploadError.message 
         });
       }
     }
     
-    // Upload download assets for 3D objects (HYP file for download)
-    if (type === '3d-object' && files.downloadAssets) {
+    // Upload download assets for 3D objects and apps (HYP file for download)
+    if ((type === '3d-object' || type === 'app') && files.downloadAssets) {
       try {
+        const folderName = type === '3d-object' ? '3d-objects' : 'apps';
         const downloadAssetsResult = await DigitalOceanSpacesService.uploadFile(
           files.downloadAssets[0], 
-          '3d-objects'
+          folderName
         );
         
         if (!downloadAssetsResult.success) {
-          console.error('3D download assets upload failed:', downloadAssetsResult.error);
+          console.error(`${type} download assets upload failed:`, downloadAssetsResult.error);
           return res.status(500).json({ 
-            error: 'Failed to upload 3D download assets', 
+            error: `Failed to upload ${type} download assets`, 
             details: downloadAssetsResult.error 
           });
         }
         downloadAssetsUrl = downloadAssetsResult.url;
       } catch (uploadError) {
-        console.error('3D download assets upload error:', uploadError);
+        console.error(`${type} download assets upload error:`, uploadError);
         return res.status(500).json({ 
-          error: 'Failed to upload 3D download assets', 
+          error: `Failed to upload ${type} download assets`, 
           details: uploadError.message 
         });
       }
     }
     
-    // Calculate file size for the main file (download assets for 3D objects, cover image for others)
+    // Calculate file size for the main file (download assets for 3D objects and apps, cover image for others)
     let fileSize = '0 MB';
-    if (type === '3d-object' && files.downloadAssets) {
+    if ((type === '3d-object' || type === 'app') && files.downloadAssets) {
       const sizeInBytes = files.downloadAssets[0].size;
       fileSize = formatFileSize(sizeInBytes);
     } else if (files.coverImage) {
@@ -315,13 +325,13 @@ router.post('/', authenticateToken, upload.fields([
       status: req.user.role === 'admin' ? 'approved' : 'unapproved'
     };
     
-    // Add scene assets URL for 3D objects (GLB file for preview)
-    if (type === '3d-object' && sceneAssetsUrl) {
+    // Add scene assets URL for 3D objects and apps (GLB file for preview)
+    if ((type === '3d-object' || type === 'app') && sceneAssetsUrl) {
       itemData.sceneAssets = sceneAssetsUrl;
     }
     
-    // Add download assets URL for 3D objects (HYP file for download)
-    if (type === '3d-object' && downloadAssetsUrl) {
+    // Add download assets URL for 3D objects and apps (HYP file for download)
+    if ((type === '3d-object' || type === 'app') && downloadAssetsUrl) {
       itemData.downloadAssets = downloadAssetsUrl;
     }
     
@@ -438,7 +448,7 @@ router.get('/search/:query', async (req, res) => {
   }
 });
 
-// Get signed URL for 3D model file
+// Get signed URL for 3D model or app preview file
 router.get('/signed-url-3d/:itemId', async (req, res) => {
   try {
     const item = await Item.findById(req.params.itemId);
@@ -448,7 +458,11 @@ router.get('/signed-url-3d/:itemId', async (req, res) => {
     }
     
     if (!item.sceneAssets) {
-      return res.status(404).json({ error: 'No 3D model available for this item' });
+      return res.status(404).json({ 
+        error: item.type === 'app' 
+          ? 'No preview model available for this application' 
+          : 'No 3D model available for this item' 
+      });
     }
     
     // Extract the key from the sceneAssets URL
