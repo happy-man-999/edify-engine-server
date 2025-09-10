@@ -15,7 +15,8 @@ class TransactionService {
         status: transactionData.status,
         date: transactionData.date || new Date(),
         item: transactionData.item,
-        itemType: transactionData.itemType
+        itemType: transactionData.itemType,
+        cartItems: transactionData.cartItems
       });
       
       await transaction.save();

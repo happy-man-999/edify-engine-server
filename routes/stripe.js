@@ -80,7 +80,7 @@ router.post('/create-payment-intent', async (req, res) => {
 // Create Stripe Checkout session
 router.post('/create-checkout-session', async (req, res) => {
   try {   
-    const { amount, currency = 'usd', success_url, cancel_url, itemName, itemId } = req.body;
+    const { amount, currency = 'usd', success_url, cancel_url, itemName, itemId, metadata } = req.body;
 
     if (!amount) {
       return res.status(400).json({ error: 'Amount is required' });
@@ -120,7 +120,8 @@ router.post('/create-checkout-session', async (req, res) => {
       cancel_url: cancel_url || `${req.headers.origin}/signup`,
       metadata: {
         itemName: itemName || 'Edify Engine',
-        itemId: itemId || 'unknown'
+        itemId: itemId || 'unknown',
+        ...metadata
       }
     });
 
@@ -176,7 +177,7 @@ router.post('/create-subscription-session', async (req, res) => {
       metadata: {
         itemName: itemName || 'Edify Engine',
         itemId: itemId || 'unknown',
-        ...metadata
+        ...metadata,
       }
     });
 
@@ -357,8 +358,36 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     const itemName = sessionMetadata?.itemName;
     const customDomain = sessionMetadata?.customDomain;
     const dropletId = sessionMetadata?.dropletId;
+    const cartItemsString = sessionMetadata?.cartItems;
+    const itemNamesString = sessionMetadata?.itemNames;
+    
+    // Parse cartItems from JSON string if it exists
+    let cartItems = null;
+    if (cartItemsString) {
+      try {
+        cartItems = JSON.parse(cartItemsString);
+      } catch (error) {
+        console.error('Error parsing cartItems from metadata:', error);
+        cartItems = null;
+      }
+    }
+
+    let itemNames = null;
+    if (itemNamesString) {
+      try {
+        itemNames = JSON.parse(itemNamesString);
+      } catch (error) {
+        console.error('Error parsing itemNames from metadata:', error);
+        itemNames = null;
+      }
+    }
     const amount = session.amount_total / 100; // Convert from cents to dollars
     const currency = session.currency?.toUpperCase() || 'USD';
+
+    const isNewWorld = itemId === 'new-world';
+    const isCartPurchase = itemId === 'cart-purchase';
+    const isCustomDomain = itemId === 'custom-domain';
+    const isItemPurchase = itemId && !isNewWorld && !isCartPurchase && !isCustomDomain && itemId !== 'basic-plan' && itemId !== 'premium-plan';
     
     // Create transaction record first
     let transaction;
@@ -370,11 +399,13 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         paymentMethod: 'stripe',
         status: 'success',
         date: new Date(),
-        item: null, // Will be set based on item type
+        item: isItemPurchase ? itemId : null,
         itemType: itemId === 'new-world' ? 'new-world' : 
                  itemId === 'basic-plan' ? 'basic-plan' : 
                  itemId === 'premium-plan' ? 'premium-plan' : 
-                 itemId && itemId !== 'unknown' ? 'item-purchase' : 'other'
+                 itemId === 'cart-purchase' ? 'cart-purchase' :
+                 itemId && itemId !== 'unknown' ? 'item-purchase' : 'other',
+        cartItems
       });
     } catch (error) {
       console.error('Error creating transaction:', error);
@@ -429,7 +460,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
       } else {
         res.status(404).json({ error: 'No signup progress found' });
       }
-    } else if (itemId === 'new-world') {
+    } else if (isNewWorld) {
       // Handle new world creation payment - return immediately and process in background
       
       // Check if user already has 3 worlds before starting background processing
@@ -480,7 +511,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         processing: true,
         transactionId: transaction._id
       });
-    } else if (itemId === 'custom-domain') {
+    } else if (isCustomDomain) {
       // Handle custom domain purchase
       try {        
         if (!customDomain) {
@@ -517,7 +548,27 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         console.error('Error processing custom domain purchase:', error);
         res.status(500).json({ error: 'Failed to process custom domain purchase' });
       }
-    } else if (itemId && itemId !== 'unknown') {
+    } else if (isCartPurchase) {
+      try {
+        await LogService.logPurchase(req.user._id, null, transaction._id, {
+          itemName: itemNames.join(', ') || 'Cart Items',
+          amount: amount,
+          paymentMethod: 'stripe',
+          signature: sessionId,
+          currency: currency
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Cart purchase payment completed',
+        itemType: 'cart-purchase',
+        cartItems,
+        totalItems: cartItems.length
+      });
+    } else if (isItemPurchase) {
       // Log successful item purchase
       try {
         await LogService.logPurchase(req.user._id, itemId, transaction._id, {

@@ -278,40 +278,82 @@ router.get('/purchases', authenticateToken, async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Get successful transactions with item purchases
+    // Get successful transactions with both item purchases and cart purchases
     const transactions = await Transaction.find({
       user: userId,
       status: 'success',
-      itemType: 'item-purchase',
-      item: { $exists: true, $ne: null }
+      itemType: { $in: ['item-purchase', 'cart-purchase'] },
+      $or: [
+        { item: { $exists: true, $ne: null } },
+        { cartItems: { $exists: true, $ne: null, $not: { $size: 0 } } }
+      ]
     })
     .populate('item', 'title description type category priceUSD image fileSize features tags supportedPlatforms sceneAssets downloadAssets creator')
-    .sort({ date: -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
+    .sort({ date: -1 });
     
-    // Get total count for pagination
-    const total = await Transaction.countDocuments({
-      user: userId,
-      status: 'success',
-      itemType: 'item-purchase',
-      item: { $exists: true, $ne: null }
-    });
+    // Flatten transactions into individual purchase items
+    let allPurchases = [];
     
-    // Format the response
-    const purchases = transactions.map(transaction => ({
-      id: transaction._id,
-      transactionId: transaction.signature,
-      item: transaction.item,
-      purchaseDate: transaction.date,
-      amount: transaction.amount,
-      paymentMethod: transaction.paymentMethod,
-      currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD'
-    }));
+    for (const transaction of transactions) {
+      if (transaction.itemType === 'item-purchase' && transaction.item) {
+        // Single item purchase
+        allPurchases.push({
+          id: transaction._id,
+          transactionId: transaction.signature,
+          item: transaction.item,
+          purchaseDate: transaction.date,
+          amount: transaction.amount,
+          paymentMethod: transaction.paymentMethod,
+          currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD',
+        });
+      } else if (transaction.itemType === 'cart-purchase' && transaction.cartItems && transaction.cartItems.length > 0) {
+        // Cart purchase - create separate entries for each item
+        for (const cartItemId of transaction.cartItems) {
+          // Find the item details from the cartItems array
+          let cartItem = null;
+          try {
+            cartItem = await Item.findById(cartItemId);
+          } catch (error) {
+            console.error('Error finding cart item:', error);
+          }
+          
+          allPurchases.push({
+            id: `${transaction._id}-${cartItemId}`,
+            transactionId: `${transaction.signature}-${cartItemId}`,
+            item: cartItem,
+            purchaseDate: transaction.date,
+            amount: cartItem.priceUSD,
+            paymentMethod: transaction.paymentMethod,
+            currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD',
+            purchaseType: 'cart-purchase',
+            quantity: cartItem.quantity
+          });
+        }
+      }
+    }
+    
+    // Sort all purchases by date (most recent first)
+    allPurchases.sort((a, b) => new Date(b.purchaseDate) - new Date(a.purchaseDate));
+    
+    // Remove duplicate items (keep the most recent purchase for each item)
+    const uniquePurchases = [];
+    const seenItems = new Set();
+    
+    for (const purchase of allPurchases) {
+      const itemId = purchase.item._id || purchase.item.id;
+      if (!seenItems.has(itemId)) {
+        seenItems.add(itemId);
+        uniquePurchases.push(purchase);
+      }
+    }
+    
+    // Apply pagination to the deduplicated results
+    const total = uniquePurchases.length;
+    const paginatedPurchases = uniquePurchases.slice(skip, skip + parseInt(limit));
     
     res.json({
       success: true,
-      purchases,
+      purchases: paginatedPurchases,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -333,14 +375,25 @@ router.get('/purchases/:transactionId/download', authenticateToken, async (req, 
   try {
     const { transactionId } = req.params;
     const userId = req.user._id;
+
+    // Check if this is a cart purchase (format: transactionId-cartItemId)
+    const isCartPurchase = transactionId.includes('-');
+    let actualTransactionId = transactionId;
+    let cartItemId = null;
+    
+    if (isCartPurchase) {
+      const parts = transactionId.split('-');
+      actualTransactionId = parts[0];
+      cartItemId = parts.slice(1).join('-'); // In case cartItemId contains hyphens
+    }
     
     // Find the transaction and verify ownership
     const transaction = await Transaction.findOne({
-      signature: transactionId,
+      signature: actualTransactionId,
       user: userId,
       status: 'success',
-      itemType: 'item-purchase'
-    }).populate('item');
+      itemType: isCartPurchase ? 'cart-purchase' : 'item-purchase'
+    });
     
     if (!transaction) {
       return res.status(404).json({ 
@@ -348,10 +401,37 @@ router.get('/purchases/:transactionId/download', authenticateToken, async (req, 
       });
     }
     
-    if (!transaction.item) {
-      return res.status(404).json({ 
-        message: 'Item not found' 
-      });
+    let item = null;
+    
+    if (isCartPurchase) {
+      // For cart purchases, find the specific item from cartItems
+      if (!transaction.cartItems || !Array.isArray(transaction.cartItems)) {
+        return res.status(404).json({ 
+          message: 'Cart items not found' 
+        });
+      }
+      
+      if (!transaction.cartItems.includes(cartItemId)) {
+        return res.status(404).json({ 
+          message: 'Cart item not found' 
+        });
+      }
+      
+      // Find the full item details from the database
+      item = await Item.findById(cartItemId);
+      if (!item) {
+        return res.status(404).json({ 
+          message: 'Item not found' 
+        });
+      }
+    } else {
+      // For individual purchases, use the populated item
+      if (!transaction.item) {
+        return res.status(404).json({ 
+          message: 'Item not found' 
+        });
+      }
+      item = transaction.item;
     }
     
     // Generate signed download URL
@@ -359,40 +439,40 @@ router.get('/purchases/:transactionId/download', authenticateToken, async (req, 
       let key;
       let downloadUrl;
       
-      if (transaction.item.downloadAssets) {
+      if (item.downloadAssets) {
         // For 3D objects, use downloadAssets
-        if (transaction.item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+        if (item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
           // Extract key from full URL
-          const urlParts = transaction.item.downloadAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+          const urlParts = item.downloadAssets.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
           key = urlParts[1];
         } else {
           // Assume it's already a key
-          key = transaction.item.downloadAssets;
+          key = item.downloadAssets;
         }
         downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
         
         res.json({
           success: true,
           downloadUrl,
-          itemName: transaction.item.title,
+          itemName: item.title,
           fileType: 'HYP'
         });
       } else {
         // For other item types, use image or other assets
-        if (transaction.item.image && transaction.item.image.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
+        if (item.image && item.image.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
           // Extract key from full URL
-          const urlParts = transaction.item.image.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
+          const urlParts = item.image.split(`${process.env.DO_SPACES_ITEMS_BUCKET_URL}/`);
           key = urlParts[1];
           downloadUrl = await DigitalOceanSpacesService.getSignedUrl(key, 60);
         } else {
           // Fallback to direct URL
-          downloadUrl = transaction.item.image;
+          downloadUrl = item.image;
         }
         
         res.json({
           success: true,
           downloadUrl,
-          itemName: transaction.item.title,
+          itemName: item.title,
           fileType: 'Image'
         });
       }

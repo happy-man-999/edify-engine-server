@@ -57,7 +57,7 @@ router.get('/sol-price', async (req, res) => {
 
 router.post('/payment-success', async (req, res) => {
   try {
-    const { signature } = req.body;
+    const { signature, metadata } = req.body;
     if (!signature) {
       return res.status(400).json({ error: 'Signature is required' });
     }
@@ -89,9 +89,32 @@ router.post('/payment-success', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch transaction info' });
     }
 
-    // Determine if this is a new-world creation or item purchase
+    const cartItemsString = metadata?.cartItems;
+    const itemNamesString = metadata?.itemNames;
+
+    let cartItems = null;
+    if (cartItemsString) {
+      try {
+        cartItems = JSON.parse(cartItemsString);
+      } catch (error) {
+        console.error('Error parsing cartItems from metadata:', error);
+        cartItems = null;
+      }
+    }
+    let itemNames = null;
+    if (itemNamesString) {
+      try {
+        itemNames = JSON.parse(itemNamesString);
+      } catch (error) {
+        console.error('Error parsing itemNames from metadata:', error);
+        itemNames = null;
+      }
+    }
+
+    // Determine if this is a new-world creation, item purchase, or cart purchase
     const isNewWorld = txInfo.itemId === 'new-world';
-    const isItemPurchase = txInfo.itemId && !isNewWorld && txInfo.itemId !== 'basic-plan' && txInfo.itemId !== 'premium-plan';
+    const isCartPurchase = txInfo.itemId === 'cart-purchase';
+    const isItemPurchase = txInfo.itemId && !isNewWorld && !isCartPurchase && txInfo.itemId !== 'basic-plan' && txInfo.itemId !== 'premium-plan';
 
     // Validate required data
     if (!txInfo.userId) {
@@ -114,66 +137,12 @@ router.post('/payment-success', async (req, res) => {
         paymentMethod: 'solana',
         status: 'success',
         date: new Date(),
-        item: isItemPurchase ? txInfo.itemId : null, // null for new-world, itemId for purchases
+        item: isItemPurchase ? txInfo.itemId : null,
         itemType: isNewWorld ? 'new-world' : 
-                 isItemPurchase ? 'item-purchase' : 'other'
+                 isItemPurchase ? 'item-purchase' :
+                 isCartPurchase ? 'cart-purchase' : 'other',
+        cartItems
       });
-      
-      // Log purchase - handle special cases for new-world and other non-item purchases
-      try {
-        if (isNewWorld) {
-          // For new-world creation, log without itemId since it's not a store item
-          await LogService.createLog({
-            level: 'success',
-            type: 'purchase',
-            message: `User purchased new world creation`,
-            details: {
-              itemName: 'New World Creation',
-              amount: txInfo.amount,
-              paymentMethod: 'solana',
-              signature: signature
-            },
-            status: 'completed',
-            userId: txInfo.userId,
-            transactionId: transaction._id,
-            metadata: {
-              currency: 'SOL',
-              itemType: 'new-world'
-            }
-          });
-        } else if (isItemPurchase) {
-          // For actual item purchases, use the standard logPurchase method
-          await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
-            itemName: txInfo.itemName || 'Unknown Item',
-            amount: txInfo.amount,
-            paymentMethod: 'solana',
-            signature: signature,
-            currency: 'SOL'
-          });
-        } else {
-          // For other types (like plans)
-          await LogService.createLog({
-            level: 'success',
-            type: 'purchase',
-            message: `User completed transaction: ${txInfo.itemName || 'Unknown'}`,
-            details: {
-              itemName: txInfo.itemName || 'Unknown Item',
-              amount: txInfo.amount,
-              paymentMethod: 'solana',
-              signature: signature
-            },
-            status: 'completed',
-            userId: txInfo.userId,
-            transactionId: transaction._id,
-            metadata: {
-              currency: 'SOL',
-              itemType: txInfo.itemId || 'other'
-            }
-          });
-        }
-      } catch (logError) {
-        console.error('Error logging purchase:', logError);
-      }
     } catch (error) {
       console.error('Error saving transaction to database:', error.message);
       return res.status(500).json({ error: 'Failed to save transaction' });
@@ -181,6 +150,29 @@ router.post('/payment-success', async (req, res) => {
 
     // Handle new-world creation (clone droplet) - return immediately and process in background
     if (isNewWorld) {
+      try {
+        await LogService.createLog({
+          level: 'success',
+          type: 'purchase',
+          message: `User purchased new world creation`,
+          details: {
+            itemName: 'New World Creation',
+            amount: txInfo.amount,
+            paymentMethod: 'solana',
+            signature: signature
+          },
+          status: 'completed',
+          userId: txInfo.userId,
+          transactionId: transaction._id,
+          metadata: {
+            currency: 'SOL',
+            itemType: 'new-world'
+          }
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+
       // Check if user already has 3 worlds before starting background processing
       const userDropletCount = await dropletService.countUserDroplets(txInfo.userId);
       if (userDropletCount >= 3) {
@@ -202,6 +194,19 @@ router.post('/payment-success', async (req, res) => {
         transactionId: transaction._id
       });
     } else if (isItemPurchase) {
+      try {
+        // For actual item purchases, use the standard logPurchase method
+        await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
+          itemName: txInfo.itemName || 'Unknown Item',
+          amount: txInfo.amount,
+          paymentMethod: 'solana',
+          signature: signature,
+          currency: 'SOL'
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+
       let item;
       try {
         item = await Item.findById(txInfo.itemId);
@@ -238,7 +243,52 @@ router.post('/payment-success', async (req, res) => {
       else {
         res.status(400).json({ error: 'Item not found' });
       }
+    } else if (isCartPurchase) {
+      try {
+        // For actual item purchases, use the standard logPurchase method
+        await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
+          itemName: itemNames.join(', ') || 'Cart Items',
+          amount: txInfo.amount,
+          paymentMethod: 'solana',
+          signature: signature,
+          currency: 'SOL'
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+
+      return res.status(200).json({
+        success: true, 
+        message: 'Cart purchase transaction processed successfully',
+        itemType: 'cart-purchase',
+        cartItems,
+        totalItems: cartItems.length
+      });
     } else {
+      try {
+        // For other types (like plans)
+        await LogService.createLog({
+          level: 'success',
+          type: 'purchase',
+          message: `User completed transaction: ${txInfo.itemName || 'Unknown'}`,
+          details: {
+            itemName: txInfo.itemName || 'Unknown Item',
+            amount: txInfo.amount,
+            paymentMethod: 'solana',
+            signature: signature
+          },
+          status: 'completed',
+          userId: txInfo.userId,
+          transactionId: transaction._id,
+          metadata: {
+            currency: 'SOL',
+            itemType: txInfo.itemId || 'other'
+          }
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+
       // Handle plan or other types
       return res.status(200).json({ 
         message: 'Transaction processed successfully',
