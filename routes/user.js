@@ -13,7 +13,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const dropletService = new DropletService();
-const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 const router = express.Router();
 
@@ -487,6 +486,42 @@ router.get('/purchases/:transactionId/download', authenticateToken, async (req, 
     console.error('Error getting download URL:', error);
     res.status(500).json({ 
       message: 'Failed to get download URL',
+      error: error.message 
+    });
+  }
+});
+
+// Delete user's droplet
+router.delete('/droplets/:dropletId', authenticateToken, async (req, res) => {
+  try {
+    const { dropletId } = req.params;
+    const userId = req.user._id;
+
+    // Verify the droplet belongs to the user
+    const droplet = await Droplet.findOne({ 
+      dropletId: dropletId, 
+      user: userId 
+    });
+
+    if (!droplet) {
+      return res.status(404).json({ 
+        message: 'Droplet not found or you do not have permission to delete it' 
+      });
+    }
+
+    // Delete the droplet using the droplet service
+    const result = await dropletService.deleteDroplet(dropletId);
+
+    res.json({
+      success: true,
+      message: 'Droplet deleted successfully',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error deleting droplet:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete droplet',
       error: error.message 
     });
   }
