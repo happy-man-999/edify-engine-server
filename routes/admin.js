@@ -6,6 +6,8 @@ import User from '../models/User.js';
 import Item from '../models/Item.js';
 import Settings from '../models/Settings.js';
 import Action from '../models/Action.js';
+import Droplet from '../models/Droplet.js';
+import Transaction from '../models/Transaction.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
@@ -569,6 +571,126 @@ router.get('/users/stats/overview', async (req, res) => {
     res.status(500).json({ 
       message: 'Failed to fetch user statistics',
       error: error.message 
+    });
+  }
+});
+
+// Get user's droplets
+router.get('/users/:userId/droplets', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const droplets = await Droplet.find({ user: userId })
+      .populate('user', 'firstName lastName email')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      droplets: droplets.map(droplet => ({
+        id: droplet.dropletId,
+        name: droplet.name,
+        status: droplet.status,
+        createdAt: droplet.createdAt,
+        ipAddress: droplet.ipAddress,
+        sizeSlug: droplet.sizeSlug,
+        regionSlug: droplet.regionSlug,
+        priceMonthly: droplet.priceMonthly
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching user droplets:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch user droplets' 
+    });
+  }
+});
+
+// Get user's purchased items (items from store/my-purchases)
+router.get('/users/:userId/purchases', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Get successful transactions with both item purchases and cart purchases
+    const transactions = await Transaction.find({
+      user: userId,
+      status: 'success',
+      itemType: { $in: ['item-purchase', 'cart-purchase'] },
+      $or: [
+        { item: { $exists: true, $ne: null } },
+        { cartItems: { $exists: true, $ne: null, $not: { $size: 0 } } }
+      ]
+    })
+    .populate('item', 'title description type category priceUSD image fileSize features tags supportedPlatforms sceneAssets downloadAssets creator')
+    .sort({ date: -1 });
+    
+    // Flatten transactions into individual purchase items
+    let allPurchases = [];
+    
+    for (const transaction of transactions) {
+      if (transaction.itemType === 'item-purchase' && transaction.item) {
+        // Single item purchase
+        allPurchases.push({
+          id: transaction._id,
+          transactionId: transaction.signature,
+          item: transaction.item,
+          purchaseDate: transaction.date,
+          amount: transaction.amount,
+          paymentMethod: transaction.paymentMethod,
+          currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD',
+        });
+      } else if (transaction.itemType === 'cart-purchase' && transaction.cartItems && transaction.cartItems.length > 0) {
+        // Cart purchase - create separate entries for each item
+        for (const cartItemId of transaction.cartItems) {
+          // Find the item details from the cartItems array
+          let cartItem = null;
+          try {
+            cartItem = await Item.findById(cartItemId);
+          } catch (error) {
+            console.error('Error finding cart item:', error);
+          }
+          
+          if (cartItem) {
+            allPurchases.push({
+              id: `${transaction._id}-${cartItemId}`,
+              transactionId: `${transaction.signature}-${cartItemId}`,
+              item: cartItem,
+              purchaseDate: transaction.date,
+              amount: cartItem.priceUSD,
+              paymentMethod: transaction.paymentMethod,
+              currency: transaction.paymentMethod === 'solana' ? 'SOL' : 'USD',
+              purchaseType: 'cart-purchase',
+              quantity: cartItem.quantity
+            });
+          }
+        }
+      }
+    }
+    
+    // Sort all purchases by date (most recent first)
+    allPurchases.sort((a, b) => new Date(b.purchaseDate) - new Date(a.purchaseDate));
+    
+    // Remove duplicate items (keep the most recent purchase for each item)
+    const uniquePurchases = [];
+    const seenItems = new Set();
+    
+    for (const purchase of allPurchases) {
+      const itemId = purchase.item._id || purchase.item.id;
+      if (!seenItems.has(itemId)) {
+        seenItems.add(itemId);
+        uniquePurchases.push(purchase);
+      }
+    }
+    
+    res.json({
+      success: true,
+      purchases: uniquePurchases
+    });
+  } catch (error) {
+    console.error('Error fetching user purchases:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch user purchases' 
     });
   }
 });
