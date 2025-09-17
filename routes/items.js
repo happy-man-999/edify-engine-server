@@ -186,20 +186,24 @@ router.post('/', authenticateToken, upload.fields([
       return res.status(400).json({ error: 'Cover image is required' });
     }
     
-    // For 3D objects and apps, both scene assets (GLB) and download assets (HYP) are required
-    if (type === '3d-object' || type === 'app') {
+    // For 3D objects, apps, and world templates, both scene assets (GLB) and download assets (HYP) are required
+    if (type === '3d-object' || type === 'app' || type === 'world') {
       if (!files.sceneAssets || files.sceneAssets.length === 0) {
         return res.status(400).json({ 
           error: type === '3d-object' 
             ? '3D scene assets (GLB file) are required for 3D objects'
-            : 'Application preview assets (GLB file) are required for applications'
+            : type === 'app'
+            ? 'Application preview assets (GLB file) are required for applications'
+            : 'World template preview assets (GLB file) are required for world templates'
         });
       }
       if (!files.downloadAssets || files.downloadAssets.length === 0) {
         return res.status(400).json({ 
           error: type === '3d-object'
             ? 'Download assets (HYP file) are required for 3D objects'
-            : 'Download assets (HYP file) are required for applications'
+            : type === 'app'
+            ? 'Download assets (HYP file) are required for applications'
+            : 'Download assets (HYP file) are required for world templates'
         });
       }
     }
@@ -241,10 +245,10 @@ router.post('/', authenticateToken, upload.fields([
       });
     }
     
-    // Upload scene assets for 3D objects and apps (GLB file for preview)
-    if ((type === '3d-object' || type === 'app') && files.sceneAssets) {
+    // Upload scene assets for 3D objects, apps, and world templates (GLB file for preview)
+    if ((type === '3d-object' || type === 'app' || type === 'world') && files.sceneAssets) {
       try {
-        const folderName = type === '3d-object' ? '3d-objects' : 'apps';
+        const folderName = type === '3d-object' ? '3d-objects' : type === 'app' ? 'apps' : 'world-templates';
         const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
           files.sceneAssets[0], 
           folderName
@@ -267,10 +271,10 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
     
-    // Upload download assets for 3D objects and apps (HYP file for download)
-    if ((type === '3d-object' || type === 'app') && files.downloadAssets) {
+    // Upload download assets for 3D objects, apps, and world templates (HYP file for download)
+    if ((type === '3d-object' || type === 'app' || type === 'world') && files.downloadAssets) {
       try {
-        const folderName = type === '3d-object' ? '3d-objects' : 'apps';
+        const folderName = type === '3d-object' ? '3d-objects' : type === 'app' ? 'apps' : 'world-templates';
         const downloadAssetsResult = await DigitalOceanSpacesService.uploadFile(
           files.downloadAssets[0], 
           folderName
@@ -293,9 +297,9 @@ router.post('/', authenticateToken, upload.fields([
       }
     }
     
-    // Calculate file size for the main file (download assets for 3D objects and apps, cover image for others)
+    // Calculate file size for the main file (download assets for 3D objects, apps, and world templates, cover image for others)
     let fileSize = '0 MB';
-    if ((type === '3d-object' || type === 'app') && files.downloadAssets) {
+    if ((type === '3d-object' || type === 'app' || type === 'world') && files.downloadAssets) {
       const sizeInBytes = files.downloadAssets[0].size;
       fileSize = formatFileSize(sizeInBytes);
     } else if (files.coverImage) {
@@ -325,13 +329,13 @@ router.post('/', authenticateToken, upload.fields([
       status: req.user.role === 'admin' ? 'approved' : 'unapproved'
     };
     
-    // Add scene assets URL for 3D objects and apps (GLB file for preview)
-    if ((type === '3d-object' || type === 'app') && sceneAssetsUrl) {
+    // Add scene assets URL for 3D objects, apps, and world templates (GLB file for preview)
+    if ((type === '3d-object' || type === 'app' || type === 'world') && sceneAssetsUrl) {
       itemData.sceneAssets = sceneAssetsUrl;
     }
     
-    // Add download assets URL for 3D objects and apps (HYP file for download)
-    if ((type === '3d-object' || type === 'app') && downloadAssetsUrl) {
+    // Add download assets URL for 3D objects, apps, and world templates (HYP file for download)
+    if ((type === '3d-object' || type === 'app' || type === 'world') && downloadAssetsUrl) {
       itemData.downloadAssets = downloadAssetsUrl;
     }
     
