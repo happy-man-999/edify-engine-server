@@ -236,6 +236,16 @@ class DigitalOceanService {
       
       if (httpResult.success) {
         console.log(`HTTP request to start hyperfy completed successfully for droplet ${dropletId}`);
+        
+        // Save PM2 configuration to persist across reboots
+        console.log(`Saving PM2 configuration for droplet ${dropletId}...`);
+        const pm2SaveResult = await this.executeCommandViaHTTP(dropletIp, 'pm2 save');
+        if (pm2SaveResult.success) {
+          console.log(`PM2 configuration saved successfully for droplet ${dropletId}`);
+        } else {
+          console.log(`PM2 save failed for droplet ${dropletId}: ${pm2SaveResult.message}`);
+        }
+        
         return { success: true, message: 'Droplet setup completed successfully', ipAddress: dropletIp };
       } else {
         console.log(`HTTP request to start hyperfy failed for droplet ${dropletId}: ${httpResult.message}`);
@@ -330,6 +340,15 @@ class DigitalOceanService {
       }
       
       console.log(`PM2 reloaded successfully for ${customDomain}`);
+      
+      // Save PM2 configuration to persist across reboots
+      console.log(`Saving PM2 configuration for ${customDomain}...`);
+      const pm2SaveResult = await this.executeCommandViaHTTP(ipAddress, 'pm2 save');
+      if (pm2SaveResult.success) {
+        console.log(`PM2 configuration saved successfully for ${customDomain}`);
+      } else {
+        console.log(`PM2 save failed for ${customDomain}: ${pm2SaveResult.message}`);
+      }
       
       return {
         success: true,
