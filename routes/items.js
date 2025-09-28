@@ -358,26 +358,169 @@ router.post('/', authenticateToken, upload.fields([
 });
 
 // Update item (admin only)
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, upload.fields([
+  { name: 'coverImage', maxCount: 1 },
+  { name: 'sceneAssets', maxCount: 1 },
+  { name: 'downloadAssets', maxCount: 1 }
+]), async (req, res) => {
   try {
     // Check if user is admin
-    // if (!req.user.isAdmin) {
-    //   return res.status(403).json({ error: 'Admin access required' });
-    // }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
     
-    const item = await Item.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const { id } = req.params;
+    const { 
+      title, 
+      description, 
+      type, 
+      category,
+      priceUSD, 
+      features, 
+      tags, 
+      platforms, 
+      visibility, 
+      installationInstructions 
+    } = req.body;
+    const files = req.files;
     
-    if (!item) {
+    // Find the existing item
+    const existingItem = await Item.findById(id);
+    if (!existingItem) {
       return res.status(404).json({ error: 'Item not found' });
     }
     
-    res.json(item);
+    // Prepare update data
+    const updateData = {
+      title: title || existingItem.title,
+      description: description || existingItem.description,
+      type: type || existingItem.type,
+      category: category || existingItem.category,
+      priceUSD: priceUSD ? parseFloat(priceUSD) : existingItem.priceUSD,
+      features: features ? (typeof features === 'string' ? JSON.parse(features) : features) : existingItem.features,
+      tags: tags ? (typeof tags === 'string' ? JSON.parse(tags) : tags) : existingItem.tags,
+      supportedPlatforms: platforms ? (typeof platforms === 'string' ? JSON.parse(platforms) : platforms) : existingItem.supportedPlatforms,
+      visibility: visibility || existingItem.visibility,
+      installationInstructions: installationInstructions || existingItem.installationInstructions
+    };
+    
+    // Handle file uploads if provided
+    if (files) {
+      // Check DigitalOcean Spaces configuration
+      if (!process.env.DO_SPACES_ACCESS_KEY || !process.env.DO_SPACES_SECRET_KEY || 
+          !process.env.DO_SPACES_ITEMS_BUCKET_NAME || !process.env.DO_SPACES_ITEMS_BUCKET_URL) {
+        console.error('DigitalOcean Spaces configuration missing');
+        return res.status(500).json({ 
+          error: 'File upload service not configured. Please contact administrator.',
+          details: 'DigitalOcean Spaces environment variables are missing'
+        });
+      }
+      
+      // Upload cover image if provided
+      if (files.coverImage && files.coverImage.length > 0) {
+        try {
+          const coverImageResult = await DigitalOceanSpacesService.uploadFile(
+            files.coverImage[0], 
+            'cover-images'
+          );
+          
+          if (!coverImageResult.success) {
+            console.error('Cover image upload failed:', coverImageResult.error);
+            return res.status(500).json({ 
+              error: 'Failed to upload cover image', 
+              details: coverImageResult.error 
+            });
+          }
+          updateData.image = coverImageResult.url;
+        } catch (uploadError) {
+          console.error('Cover image upload error:', uploadError);
+          return res.status(500).json({ 
+            error: 'Failed to upload cover image', 
+            details: uploadError.message 
+          });
+        }
+      }
+      
+      // Upload scene assets if provided
+      if (files.sceneAssets && files.sceneAssets.length > 0) {
+        try {
+          const folderName = updateData.type === '3d-object' ? '3d-objects' : 
+                           updateData.type === 'app' ? 'apps' : 'world-templates';
+          const sceneAssetsResult = await DigitalOceanSpacesService.uploadFile(
+            files.sceneAssets[0], 
+            folderName
+          );
+          
+          if (!sceneAssetsResult.success) {
+            console.error('Scene assets upload failed:', sceneAssetsResult.error);
+            return res.status(500).json({ 
+              error: 'Failed to upload scene assets', 
+              details: sceneAssetsResult.error 
+            });
+          }
+          updateData.sceneAssets = sceneAssetsResult.url;
+        } catch (uploadError) {
+          console.error('Scene assets upload error:', uploadError);
+          return res.status(500).json({ 
+            error: 'Failed to upload scene assets', 
+            details: uploadError.message 
+          });
+        }
+      }
+      
+      // Upload download assets if provided
+      if (files.downloadAssets && files.downloadAssets.length > 0) {
+        try {
+          const folderName = updateData.type === '3d-object' ? '3d-objects' : 
+                           updateData.type === 'app' ? 'apps' : 'world-templates';
+          const downloadAssetsResult = await DigitalOceanSpacesService.uploadFile(
+            files.downloadAssets[0], 
+            folderName
+          );
+          
+          if (!downloadAssetsResult.success) {
+            console.error('Download assets upload failed:', downloadAssetsResult.error);
+            return res.status(500).json({ 
+              error: 'Failed to upload download assets', 
+              details: downloadAssetsResult.error 
+            });
+          }
+          updateData.downloadAssets = downloadAssetsResult.url;
+        } catch (uploadError) {
+          console.error('Download assets upload error:', uploadError);
+          return res.status(500).json({ 
+            error: 'Failed to upload download assets', 
+            details: uploadError.message 
+          });
+        }
+      }
+      
+      // Update file size if download assets were uploaded
+      if (files.downloadAssets && files.downloadAssets.length > 0) {
+        const sizeInBytes = files.downloadAssets[0].size;
+        updateData.fileSize = formatFileSize(sizeInBytes);
+      }
+    }
+    
+    // Update the item
+    const updatedItem = await Item.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    res.json({
+      success: true,
+      item: updatedItem,
+      message: 'Item updated successfully'
+    });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error('Item update error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      details: error.message,
+      type: 'server_error'
+    });
   }
 });
 
