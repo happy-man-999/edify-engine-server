@@ -69,15 +69,25 @@ router.post('/progress', authenticateToken, async (req, res) => {
         progress.customizationLevel = data.customizationLevel;
         break;
         
-      case 7: // Payment
-        progress.payment = {
-          isCompleted: true,
-          stripeSessionId: data.stripeSessionId,
-          amount: data.amount,
-          completedAt: new Date()
-        };
-        progress.isCompleted = true;
-        progress.completedAt = new Date();
+      case 7: // Payment or Enterprise Contact
+        if (data.contactScheduled) {
+          // Enterprise contact scheduled
+          progress.enterpriseContact = {
+            isScheduled: true,
+            contactData: data.contactData,
+            scheduledAt: new Date()
+          };
+        } else {
+          // Regular payment
+          progress.payment = {
+            isCompleted: true,
+            stripeSessionId: data.stripeSessionId,
+            amount: data.amount,
+            completedAt: new Date()
+          };
+          progress.isCompleted = true;
+          progress.completedAt = new Date();
+        }
         break;
         
       default:

@@ -54,6 +54,35 @@ const signupProgressSchema = new mongoose.Schema({
     amount: Number,
     completedAt: Date
   },
+  // Step 7: Enterprise Contact (alternative to payment)
+  enterpriseContact: {
+    isScheduled: {
+      type: Boolean,
+      default: false
+    },
+    contactData: {
+      eventUuid: String,
+      inviteeUuid: String,
+      eventUri: String,
+      inviteeUri: String,
+      startTime: Date,
+      endTime: Date,
+      inviteeName: String,
+      inviteeEmail: String,
+      eventName: String,
+      eventType: String,
+      status: String,
+      location: {
+        join_url: String,
+        status: String,
+        type: { type: String, default: "" }
+      },
+      cancelUrl: String,
+      rescheduleUrl: String,
+      timezone: String
+    },
+    scheduledAt: Date
+  },
   // Overall progress
   currentStep: {
     type: Number,
@@ -72,7 +101,7 @@ const signupProgressSchema = new mongoose.Schema({
 
 // Method to check if signup is complete
 signupProgressSchema.methods.isSignupComplete = function() {
-  return this.isCompleted && this.payment.isCompleted;
+  return this.isCompleted && (this.payment.isCompleted || this.enterpriseContact.isScheduled);
 };
 
 // Method to get progress percentage
