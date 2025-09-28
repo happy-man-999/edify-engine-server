@@ -819,30 +819,6 @@ router.post('/droplets/:dropletId/sync', async (req, res) => {
   }
 });
 
-// Restart droplet
-router.post('/droplets/:dropletId/restart', async (req, res) => {
-  try {
-    const { dropletId } = req.params;
-    
-    const droplet = await dropletService.restartDroplet(dropletId);
-    const transformedDroplet = dropletService.transformDropletForFrontend(droplet);
-
-    res.json({ 
-      message: 'Droplet restart initiated successfully',
-      droplet: transformedDroplet 
-    });
-  } catch (error) {
-    console.error('Error restarting droplet:', error);
-    if (error.message === 'Droplet not found') {
-      return res.status(404).json({ message: 'Droplet not found' });
-    }
-    res.status(500).json({ 
-      message: 'Failed to restart droplet',
-      error: error.message 
-    });
-  }
-});
-
 // Terminate droplet
 router.post('/droplets/:dropletId/terminate', async (req, res) => {
   try {
