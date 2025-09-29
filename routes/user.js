@@ -404,7 +404,7 @@ router.get('/droplets', authenticateToken, async (req, res) => {
     
     // Get user's droplets with basic information - return all droplets, not just recent ones
     const droplets = await Droplet.find({ user: userId })
-      .select('dropletId name status subdomain createdAt memory vcpus disk priceMonthly')
+      .select('dropletId name status subdomain customDomainPaid customDomain createdAt memory vcpus disk priceMonthly')
       .sort({ createdAt: -1 }); // Sort by creation date, newest first
     
     // Format the response
@@ -414,6 +414,8 @@ router.get('/droplets', authenticateToken, async (req, res) => {
       name: droplet.name,
       status: droplet.status,
       subdomain: droplet.subdomain,
+      customDomainPaid: droplet.customDomainPaid,
+      customDomain: droplet.customDomain,
       createdAt: droplet.createdAt,
       specs: {
         memory: droplet.memory,

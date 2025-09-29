@@ -6,6 +6,7 @@ import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
+import webhookService from '../services/webhookService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import stripeService from '../services/stripeService.js';
@@ -356,7 +357,6 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
     const sessionMetadata = session.metadata;
     const itemId = sessionMetadata?.itemId;
     const itemName = sessionMetadata?.itemName;
-    const customDomain = sessionMetadata?.customDomain;
     const dropletId = sessionMetadata?.dropletId;
     const cartItemsString = sessionMetadata?.cartItems;
     const itemNamesString = sessionMetadata?.itemNames;
@@ -404,6 +404,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
                  itemId === 'basic-plan' ? 'basic-plan' : 
                  itemId === 'premium-plan' ? 'premium-plan' : 
                  itemId === 'cart-purchase' ? 'cart-purchase' :
+                 itemId === 'custom-domain' ? 'custom-domain' :
                  itemId && itemId !== 'unknown' ? 'item-purchase' : 'other',
         cartItems
       });
@@ -512,42 +513,53 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         transactionId: transaction._id
       });
     } else if (isCustomDomain) {
-      // Handle custom domain purchase
-      try {        
-        if (!customDomain) {
-          return res.status(400).json({ error: 'Custom domain is required for custom-domain purchase' });
-        }
-        
-        // Start background processing for custom domain setup
-        digitalOceanService.processCustomDomainSetup(sessionId, req.user._id, customDomain, dropletId, dropletService, emitWebhookEvent)
-          .then((result) => {
-            console.log(`Custom domain setup completed for ${customDomain}:`, result.message);
-          })
-          .catch((error) => {
-            console.error(`Custom domain setup failed for ${customDomain}:`, error.message);
-            // Log the error but don't fail the response
-            LogService.logError({
-              message: 'Custom domain setup failed',
-              error: error.message,
-              context: 'custom_domain_setup',
-              userId: req.user._id
-            }).catch(logError => console.error('Error logging custom domain setup error:', logError));
-          });
-        
-        res.json({ 
-          success: true, 
-          message: 'Custom domain purchase completed! Setup is being processed in the background.',
-          itemType: 'custom-domain',
-          itemName: 'Custom Domain',
-          customDomain: customDomain,
-          processing: true,
-          transactionId: transaction._id
-        });
-        
+      let droplet, updatedDroplet;
+
+      try {
+        droplet = await dropletService.getDropletById(dropletId);
       } catch (error) {
-        console.error('Error processing custom domain purchase:', error);
-        res.status(500).json({ error: 'Failed to process custom domain purchase' });
+        console.error('Error finding droplet:', error);
       }
+        
+      if (!droplet) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'Droplet not found or you do not have permission to modify it' 
+        });
+      }
+
+      try {
+        await LogService.logPurchase(req.user._id, null, transaction._id, {
+          itemName: 'Custom Domain',
+          amount: amount,
+          paymentMethod: 'stripe',
+          signature: sessionId,
+          currency: currency
+        });
+      } catch (logError) {
+        console.error('Error logging purchase:', logError);
+      }
+      
+      try {
+        updatedDroplet = await dropletService.updateDropletByDropletId(dropletId, { customDomainPaid: true });
+      } catch (error) {
+        console.error('Error updating droplet:', error);
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Payment confirmed! Your new world is being created in the background.',
+        itemType: 'custom-domain',
+        itemName: itemName,
+        processing: true,
+        transactionId: transaction._id,
+        droplet: {
+          dropletId: updatedDroplet.dropletId,
+          name: updatedDroplet.name,
+          customDomainPaid: updatedDroplet.customDomainPaid,
+          customDomainTransaction: updatedDroplet.customDomainTransaction
+        }
+      });
     } else if (isCartPurchase) {
       try {
         await LogService.logPurchase(req.user._id, null, transaction._id, {
@@ -721,7 +733,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     console.log(`Background processing completed for new world creation: ${sessionId}`);
     
     // Emit webhook event for frontend
-    emitWebhookEvent(userId, 'new-world-created', {
+    webhookService.emitWebhookEvent(userId, 'new-world-created', {
       sessionId,
       dropletId,
       domain: `${dropletName}.${settings.defaultDnsDomain}`,
@@ -744,7 +756,7 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     }
     
     // Emit webhook event for frontend with error
-    emitWebhookEvent(userId, 'new-world-creation-failed', {
+    webhookService.emitWebhookEvent(userId, 'new-world-creation-failed', {
       sessionId,
       error: error.message,
       status: 'failed'
@@ -755,69 +767,5 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
 
 
 
-// Webhook event emitter for frontend
-const webhookClients = new Map();
-
-function emitWebhookEvent(userId, eventType, data) {
-  const client = webhookClients.get(userId);
-  if (client) {
-    client.write(`data: ${JSON.stringify({ type: eventType, data })}\n\n`);
-  }
-}
-
-// SSE endpoint for frontend webhooks
-router.get('/webhook-stream/:userId', async (req, res) => {
-  const { userId } = req.params;
-  const { token } = req.query;
-  
-  // Verify token from query parameter
-  if (!token) {
-    return res.status(401).json({ error: 'No authorization token provided' });
-  }
-  
-  // For development, accept any token
-  if (process.env.NODE_ENV === 'development') {
-    // Accept any token in development
-  } else {
-    // In production, verify the JWT token properly
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      if (decoded.userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized access to webhook stream' });
-      }
-    } catch (jwtError) {
-      return res.status(403).json({ error: 'Invalid authorization token' });
-    }
-  }
-  
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control'
-  });
-  
-  // Store client connection
-  webhookClients.set(userId, res);
-  
-  // Send initial connection message
-  res.write(`data: ${JSON.stringify({ type: 'connected', data: { message: 'Webhook stream connected' } })}\n\n`);
-  
-  // Handle client disconnect
-  req.on('close', () => {
-    webhookClients.delete(userId);
-    console.log(`Webhook client disconnected for user: ${userId}`);
-  });
-  
-  // Keep connection alive
-  const keepAlive = setInterval(() => {
-    res.write(`data: ${JSON.stringify({ type: 'ping', data: { timestamp: Date.now() } })}\n\n`);
-  }, 30000);
-  
-  req.on('close', () => {
-    clearInterval(keepAlive);
-  });
-});
 
 export default router; 

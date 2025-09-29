@@ -3,6 +3,7 @@ import Action from '../models/Action.js';
 import Droplet from '../models/Droplet.js';
 import DropletService from './dropletService.js';
 import LogService from './logService.js';
+import webhookService from './webhookService.js';
 import Settings from '../models/Settings.js';
 import dotenv from 'dotenv';
 
@@ -260,22 +261,16 @@ class DigitalOceanService {
 
   // Setup custom domain: certbot, nginx, env update, and PM2 reload
   async setupCustomDomain(ipAddress, customDomain, subdomain) {
-    try {
-      console.log(`Setting up custom domain ${customDomain} on droplet ${ipAddress}`);
-      
+    try {      
       // Step 1: Create SSL certificate with certbot
-      console.log(`Step 1: Creating SSL certificate for ${customDomain}`);
       const certbotResult = await this.executeCommandViaHTTP(ipAddress, `sudo certbot certonly --nginx -d ${customDomain} -m lovesuper.panda414@gmail.com --agree-tos --non-interactive`);
       
       if (!certbotResult.success) {
         console.error(`Certbot failed: ${certbotResult.message}`);
         return { success: false, message: `SSL certificate creation failed: ${certbotResult.message}` };
       }
-      
-      console.log(`SSL certificate created successfully for ${customDomain}`);
-      
+            
       // Step 2: Configure nginx for custom domain
-      console.log(`Step 2: Configuring nginx for ${customDomain}`);
       const nginxConfig = this.generateNginxConfig(customDomain);
       const nginxResult = await this.executeCommandViaHTTP(ipAddress, `echo '${nginxConfig}' > /etc/nginx/sites-available/${customDomain}`);
       
@@ -306,10 +301,7 @@ class DigitalOceanService {
         return { success: false, message: `Nginx reload failed: ${nginxReloadResult.message}` };
       }
       
-      console.log(`Nginx configured successfully for ${customDomain}`);
-      
       // Step 3: Update hyperfy environment file
-      console.log(`Step 3: Updating hyperfy environment file for ${customDomain}`);
       
       // Determine the search string based on subdomain type
       let searchString;
@@ -328,10 +320,7 @@ class DigitalOceanService {
         return { success: false, message: `Environment file update failed: ${envUpdateResult.message}` };
       }
       
-      console.log(`Environment file updated successfully for ${customDomain}`);
-      
       // Step 4: Reload PM2 with updated environment
-      console.log(`Step 4: Reloading PM2 with updated environment for ${customDomain}`);
       const pm2ReloadResult = await this.executeCommandViaHTTP(ipAddress, 'pm2 reload hyperfy --update-env');
       
       if (!pm2ReloadResult.success) {
@@ -339,15 +328,11 @@ class DigitalOceanService {
         return { success: false, message: `PM2 reload failed: ${pm2ReloadResult.message}` };
       }
       
-      console.log(`PM2 reloaded successfully for ${customDomain}`);
-      
       // Save PM2 configuration to persist across reboots
-      console.log(`Saving PM2 configuration for ${customDomain}...`);
       const pm2SaveResult = await this.executeCommandViaHTTP(ipAddress, 'pm2 save');
-      if (pm2SaveResult.success) {
-        console.log(`PM2 configuration saved successfully for ${customDomain}`);
-      } else {
-        console.log(`PM2 save failed for ${customDomain}: ${pm2SaveResult.message}`);
+      if (!pm2SaveResult.success) {
+        console.error(`PM2 configuration save failed: ${pm2SaveResult.message}`);
+        return { success: false, message: `PM2 configuration save failed: ${pm2SaveResult.message}` };
       }
       
       return {
@@ -614,52 +599,38 @@ server {
   }
 
   // Complete custom domain setup workflow
-  async processCustomDomainSetup(sessionId, userId, customDomain, dropletId, dropletService, emitWebhookEvent) {
-    try {
-      console.log(`Starting custom domain setup workflow for ${customDomain}`);
-      
+  async processCustomDomainSetup(sessionId, userId, customDomain, dropletId, dropletService) {
+    try {      
       // Step 1: Get droplet IP address and subdomain
-      console.log(`Step 1: Getting droplet IP address and subdomain`);
       let dropletIp, subdomain;
       try {
         dropletIp = await this.getDropletPublicNetwork(dropletId);
-        console.log(`Droplet ${dropletId} IP address: ${dropletIp}`);
         
         // Get droplet info to retrieve subdomain
         const droplet = await dropletService.getDropletById(dropletId);
         subdomain = droplet.subdomain;
-        console.log(`Droplet ${dropletId} subdomain: ${subdomain}`);
       } catch (ipError) {
         console.error('Error getting droplet IP:', ipError.message);
         throw new Error('Failed to get droplet IP address');
       }
       
       // Step 2: Setup custom domain on the droplet
-      console.log(`Step 2: Setting up custom domain on droplet`);
       const setupResult = await this.setupCustomDomain(dropletIp, customDomain, subdomain);
       
       if (setupResult.success) {
-        console.log(`Custom domain ${customDomain} setup completed successfully`);
-        
-        // Step 3: Update droplet record with custom domain
-        console.log(`Step 3: Updating droplet record with custom domain`);
         try {
-          await dropletService.updateDropletSubdomain(dropletId, customDomain);
-          console.log(`Droplet ${dropletId} updated with custom domain ${customDomain}`);
+          await dropletService.updateDropletByDropletId(dropletId, { customDomain: customDomain, name: customDomain });
         } catch (updateError) {
           console.error('Error updating droplet with custom domain:', updateError.message);
-          // Don't fail the entire process if database update fails
         }
         
-        // Emit webhook event for frontend if function is provided
-        if (emitWebhookEvent && typeof emitWebhookEvent === 'function') {
-          emitWebhookEvent(userId, 'custom-domain-setup-completed', {
-            sessionId,
-            dropletId: dropletId,
-            customDomain: customDomain,
-            status: 'completed'
-          });
-        }
+        // Emit webhook event for frontend
+        webhookService.emitWebhookEvent(userId, 'custom-domain-setup-completed', {
+          sessionId,
+          dropletId: dropletId,
+          customDomain: customDomain,
+          status: 'completed'
+        });
         
         return {
           success: true,
@@ -667,7 +638,6 @@ server {
           customDomain: customDomain,
           dropletId: dropletId,
           ipAddress: dropletIp,
-          dnsRecordId: dnsResult.recordId
         };
         
       } else {
@@ -677,15 +647,13 @@ server {
     } catch (error) {
       console.error(`Error in custom domain setup workflow for ${customDomain}:`, error.message);
       
-      // Emit webhook event for frontend with error if function is provided
-      if (emitWebhookEvent && typeof emitWebhookEvent === 'function') {
-        emitWebhookEvent(userId, 'custom-domain-setup-failed', {
-          sessionId,
-          customDomain: customDomain,
-          error: error.message,
-          status: 'failed'
-        });
-      }
+      // Emit webhook event for frontend with error
+      webhookService.emitWebhookEvent(userId, 'custom-domain-setup-failed', {
+        sessionId,
+        customDomain: customDomain,
+        error: error.message,
+        status: 'failed'
+      });
       
       throw new Error(`Failed to complete custom domain setup: ${error.message}`);
     }

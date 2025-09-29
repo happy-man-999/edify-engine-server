@@ -39,7 +39,7 @@ const transactionSchema = new mongoose.Schema({
   },
   itemType: {
     type: String,
-    enum: ['new-world', 'item-purchase', 'cart-purchase', 'basic-plan', 'premium-plan', 'other'],
+    enum: ['new-world', 'item-purchase', 'cart-purchase', 'basic-plan', 'premium-plan', 'custom-domain', 'other'],
     required: false
   },
   cartItems: {

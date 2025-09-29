@@ -13,6 +13,7 @@ import items from './routes/items.js';
 import user from './routes/user.js';
 import dns from './routes/dns.js';
 import calendly from './routes/calendly.js';
+import webhooks from './routes/webhooks.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -83,6 +84,7 @@ app.use('/api/items', items);
 app.use('/api/user', user);
 app.use('/api/dns', dns);
 app.use('/api/calendly', calendly);
+app.use('/api/webhooks', webhooks);
 
 // Error handling middleware
 app.use((error, req, res, next) => {

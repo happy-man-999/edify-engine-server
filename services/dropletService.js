@@ -720,6 +720,26 @@ class DropletService {
       return null;
     }
   }
+
+  // Update droplet by dropletId
+  async updateDropletByDropletId(dropletId, updateData) {
+    try {
+      const droplet = await Droplet.findOneAndUpdate(
+        { dropletId: parseInt(dropletId) },
+        updateData,
+        { new: true, runValidators: true }
+      );
+
+      if (!droplet) {
+        throw new Error('Droplet not found');
+      }
+
+      return droplet;
+    } catch (error) {
+      console.error('Error updating droplet by dropletId:', error);
+      throw error;
+    }
+  }
 }
 
 export default DropletService; 

@@ -64,6 +64,14 @@ const dropletSchema = new mongoose.Schema({
   subdomain: {
     type: String,
     required: false
+  },
+  customDomainPaid: {
+    type: Boolean,
+    default: false
+  },
+  customDomain: {
+    type: String,
+    required: false
   }
 }, {
   timestamps: true

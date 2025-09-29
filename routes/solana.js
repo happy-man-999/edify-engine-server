@@ -6,6 +6,7 @@ import DropletService from '../services/dropletService.js';
 import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import LogService from '../services/logService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
+import webhookService from '../services/webhookService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import Item from '../models/Item.js';
@@ -434,7 +435,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     console.log(`Background processing completed for new world creation: ${signature}`);
     
     // Emit webhook event for frontend
-    emitWebhookEvent(userId, 'new-world-created', {
+    webhookService.emitWebhookEvent(userId, 'new-world-created', {
       signature,
       dropletId,
       domain: `${dropletName}.${settings.defaultDnsDomain}`,
@@ -466,7 +467,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     }
     
     // Emit webhook event for frontend with error
-    emitWebhookEvent(userId, 'new-world-creation-failed', {
+    webhookService.emitWebhookEvent(userId, 'new-world-creation-failed', {
       signature,
       error: error.message,
       status: 'failed'
@@ -474,69 +475,5 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
   }
 }
 
-// Webhook event emitter for frontend
-const webhookClients = new Map();
-
-function emitWebhookEvent(userId, eventType, data) {
-  const client = webhookClients.get(userId);
-  if (client) {
-    client.write(`data: ${JSON.stringify({ type: eventType, data })}\n\n`);
-  }
-}
-
-// SSE endpoint for frontend webhooks
-router.get('/webhook-stream/:userId', async (req, res) => {
-  const { userId } = req.params;
-  const { token } = req.query;
-  
-  // Verify token from query parameter
-  if (!token) {
-    return res.status(401).json({ error: 'No authorization token provided' });
-  }
-  
-  // For development, accept any token
-  if (process.env.NODE_ENV === 'development') {
-    // Accept any token in development
-  } else {
-    // In production, verify the JWT token properly
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      if (decoded.userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized access to webhook stream' });
-      }
-    } catch (jwtError) {
-      return res.status(403).json({ error: 'Invalid authorization token' });
-    }
-  }
-  
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control'
-  });
-  
-  // Store client connection
-  webhookClients.set(userId, res);
-  
-  // Send initial connection message
-  res.write(`data: ${JSON.stringify({ type: 'connected', data: { message: 'Webhook stream connected' } })}\n\n`);
-  
-  // Handle client disconnect
-  req.on('close', () => {
-    webhookClients.delete(userId);
-    console.log(`Webhook client disconnected for user: ${userId}`);
-  });
-  
-  // Keep connection alive
-  const keepAlive = setInterval(() => {
-    res.write(`data: ${JSON.stringify({ type: 'ping', data: { timestamp: Date.now() } })}\n\n`);
-  }, 30000);
-  
-  req.on('close', () => {
-    clearInterval(keepAlive);
-  });
-});
 
 export default router;

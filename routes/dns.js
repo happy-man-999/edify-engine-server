@@ -2,8 +2,16 @@ import express from 'express';
 import dotenv from 'dotenv';
 import https from 'https';
 import Droplet from '../models/Droplet.js';
+import axios from 'axios';
+import DropletService from '../services/dropletService.js';
+import DigitalOceanService from '../services/digitalOceanService.js';
+import LogService from '../services/logService.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 dotenv.config();
+
+const dropletService = new DropletService();
+const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
 
 const router = express.Router();
 
@@ -19,61 +27,29 @@ router.get('/check-health', async (req, res) => {
     const healthUrl = `https://${domain}/health`;
     console.log('Server checking domain health at:', healthUrl);
 
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
     // Create an insecure HTTPS agent (equivalent to curl --insecure)
     const insecureAgent = new https.Agent({
       rejectUnauthorized: false
     });
 
-    const response = await fetch(healthUrl, {
-      method: 'GET',
-      signal: controller.signal,
-      agent: insecureAgent,
+    const {data} = await axios.get("https://chocklab.org/health", {
+      httpsAgent: insecureAgent
     });
-
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const data = await response.json();
-      res.json({
-        success: true,
-        status: data.status,
-        domain,
-        httpStatus: response.status
-      });
-    } else {
-      res.json({
-        success: false,
-        status: 'error',
-        domain,
-        httpStatus: response.status,
-        message: `Domain responded with HTTP ${response.status}`
-      });
-    }
     
+    res.json({
+      success: true,
+      status: data.status,
+      domain
+    });
   } catch (error) {
     console.error('Health check error:', error);
-    
-    if (error.name === 'AbortError') {
-      res.json({
-        success: false,
-        status: 'timeout',
-        domain: req.query.domain,
-        protocol: req.query.protocol,
-        message: 'Request timed out'
-      });
-    } else {
-      res.json({
-        success: false,
-        status: 'error',
-        domain: req.query.domain,
-        protocol: req.query.protocol,
-        message: error.message
-      });
-    }
+    res.json({
+      success: false,
+      status: 'error',
+      domain: req.query.domain,
+      protocol: req.query.protocol,
+      message: error.message
+    });
   }
 });
 
@@ -114,6 +90,93 @@ router.get('/droplet/:dropletId/ip', async (req, res) => {
     console.error('Get droplet IP error:', error);
     res.status(500).json({ 
       error: 'Failed to get droplet IP address',
+      message: error.message 
+    });
+  }
+});
+
+// Entri authentication endpoint
+router.post('/entri/token', async (req, res) => {
+  try {
+    const response = await fetch('https://api.goentri.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        // These values come from the Entri dashboard
+        applicationId: process.env.ENTRI_APPLICATION_ID,
+        secret: process.env.ENTRI_SECRET
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Entri API error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.auth_token) {
+      res.json({
+        success: true,
+        auth_token: data.auth_token
+      });
+    } else {
+      throw new Error('No auth token received from Entri API');
+    }
+    
+  } catch (error) {
+    console.error('Entri authentication error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to authenticate with Entri',
+      message: error.message 
+    });
+  }
+});
+
+// Custom domain setup endpoint
+router.post('/custom-domain/setup', authenticateToken, async (req, res) => {
+  try {
+    const { dropletId, customDomain } = req.body;
+    const userId = req.user._id;
+
+    if (!dropletId || !customDomain) {
+      return res.status(400).json({ 
+        error: 'Droplet ID and custom domain are required' 
+      });
+    }
+
+    // Start background processing for custom domain setup
+    digitalOceanService.processCustomDomainSetup(
+      `custom-domain-${Date.now()}`, // sessionId
+      userId, 
+      customDomain, 
+      dropletId, 
+      dropletService
+    )
+
+    res.json({ 
+      success: true, 
+      message: 'Custom domain setup initiated! Processing in the background.',
+      customDomain: customDomain,
+      dropletId: dropletId,
+      processing: true
+    });
+    
+  } catch (error) {
+    console.error('Error initiating custom domain setup:', error);
+    
+    LogService.logError({
+      message: 'Custom domain setup failed',
+      error: error.message,
+      context: 'custom_domain_setup',
+      userId: userId
+    });
+
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to initiate custom domain setup',
       message: error.message 
     });
   }
