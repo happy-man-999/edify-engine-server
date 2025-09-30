@@ -18,13 +18,25 @@ const router = express.Router();
 // Check domain health endpoint
 router.get('/check-health', async (req, res) => {
   try {
-    const { domain } = req.query;
+    const { domain, dropletId } = req.query;
+    let droplet = null, originalDomain = null;
     
     if (!domain) {
       return res.status(400).json({ error: 'Domain parameter is required' });
     }
 
-    const healthUrl = `https://${domain}/health`;
+    try {
+      droplet = await dropletService.getDropletById(dropletId);
+      originalDomain = droplet.customDomain || `${droplet.subdomain}.edifyengine.com`;
+      if (!droplet) {
+        return res.status(404).json({ error: 'Droplet not found' });
+      }
+    } catch (error) {
+      console.error('Error finding droplet:', error);
+      return res.status(500).json({ error: 'Failed to find droplet' });
+    }
+
+    const healthUrl = `https://${domain}/env.js`;
     console.log('Server checking domain health at:', healthUrl);
 
     // Create an insecure HTTPS agent (equivalent to curl --insecure)
@@ -32,13 +44,17 @@ router.get('/check-health', async (req, res) => {
       rejectUnauthorized: false
     });
 
-    const {data} = await axios.get("https://chocklab.org/health", {
+    const {data} = await axios.get(healthUrl, {
       httpsAgent: insecureAgent
     });
     
     res.json({
       success: true,
-      status: data.status,
+      status: data.includes(`https://${originalDomain}`) 
+        ? 'connected' 
+        : data.includes(`https://${domain}`) 
+        ? 'certified' 
+        : 'disconnected',
       domain
     });
   } catch (error) {
