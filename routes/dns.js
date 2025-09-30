@@ -1,6 +1,8 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import https from 'https';
+import dns from 'dns';
+import { promisify } from 'util';
 import Droplet from '../models/Droplet.js';
 import axios from 'axios';
 import DropletService from '../services/dropletService.js';
@@ -12,6 +14,9 @@ dotenv.config();
 
 const dropletService = new DropletService();
 const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TOKEN, process.env.DIGITAL_OCEAN_SSH_KEY_ID);
+
+// Promisify DNS lookup for async/await usage
+const lookup = promisify(dns.lookup);
 
 const router = express.Router();
 
@@ -44,18 +49,51 @@ router.get('/check-health', async (req, res) => {
       rejectUnauthorized: false
     });
 
-    const {data} = await axios.get(healthUrl, {
-      httpsAgent: insecureAgent
-    });
+    let healthStatus = 'disconnected';
+    let dnsConnected = false;
+
+    try {
+      // Check if domain IP matches droplet IP (DNS connection check)
+      const domainLookup = await lookup(domain);
+      if (domainLookup.address === droplet.ipAddress) {
+        dnsConnected = true;
+        console.log(`DNS check passed: ${domain} (${domainLookup.address}) matches droplet IP (${droplet.ipAddress})`);
+      } else {
+        console.log(`DNS check failed: ${domain} (${domainLookup.address}) does not match droplet IP (${droplet.ipAddress})`);
+      }
+    } catch (dnsError) {
+      console.log(`DNS lookup failed for ${domain}:`, dnsError.message);
+    }
+
+    try {
+      const {data} = await axios.get(healthUrl, {
+        httpsAgent: insecureAgent
+      });
+      
+      // Determine status based on both DNS and HTTP response
+      if (data.includes(`https://${originalDomain}`)) {
+        healthStatus = 'connected';
+      } else if (data.includes(`https://${domain}`)) {
+        healthStatus = 'certified';
+      } else if (dnsConnected) {
+        healthStatus = 'connected'; // New status for DNS-only connection
+      } else {
+        healthStatus = 'disconnected';
+      }
+    } catch (httpError) {
+      console.log(`HTTP health check failed for ${domain}:`, httpError.message);
+      // If HTTP fails but DNS is connected, still report DNS connection
+      if (dnsConnected) {
+        healthStatus = 'connected';
+      }
+    }
     
     res.json({
       success: true,
-      status: data.includes(`https://${originalDomain}`) 
-        ? 'connected' 
-        : data.includes(`https://${domain}`) 
-        ? 'certified' 
-        : 'disconnected',
-      domain
+      status: healthStatus,
+      domain,
+      dnsConnected,
+      dropletIp: droplet.ipAddress
     });
   } catch (error) {
     console.error('Health check error:', error);
