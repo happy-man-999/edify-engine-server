@@ -624,14 +624,6 @@ server {
           console.error('Error updating droplet with custom domain:', updateError.message);
         }
         
-        // Emit webhook event for frontend
-        webhookService.emitWebhookEvent(userId, 'custom-domain-setup-completed', {
-          sessionId,
-          dropletId: dropletId,
-          customDomain: customDomain,
-          status: 'completed'
-        });
-        
         return {
           success: true,
           message: `Custom domain ${customDomain} setup completed successfully`,
@@ -646,14 +638,6 @@ server {
       
     } catch (error) {
       console.error(`Error in custom domain setup workflow for ${customDomain}:`, error.message);
-      
-      // Emit webhook event for frontend with error
-      webhookService.emitWebhookEvent(userId, 'custom-domain-setup-failed', {
-        sessionId,
-        customDomain: customDomain,
-        error: error.message,
-        status: 'failed'
-      });
       
       throw new Error(`Failed to complete custom domain setup: ${error.message}`);
     }

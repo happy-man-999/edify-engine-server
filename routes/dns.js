@@ -201,21 +201,22 @@ router.post('/custom-domain/setup', authenticateToken, async (req, res) => {
       });
     }
 
-    // Start background processing for custom domain setup
-    digitalOceanService.processCustomDomainSetup(
+    // Process custom domain setup with await
+    const result = await digitalOceanService.processCustomDomainSetup(
       `custom-domain-${Date.now()}`, // sessionId
       userId, 
       customDomain, 
       dropletId, 
       dropletService
-    )
+    );
 
     res.json({ 
       success: true, 
-      message: 'Custom domain setup initiated! Processing in the background.',
-      customDomain: customDomain,
-      dropletId: dropletId,
-      processing: true
+      message: result.message,
+      customDomain: result.customDomain,
+      dropletId: result.dropletId,
+      ipAddress: result.ipAddress,
+      processing: false
     });
     
   } catch (error) {
