@@ -691,7 +691,7 @@ server {
       // Step 2: Create a new snapshot
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Creating new snapshot...',
-        progress: 50
+        progress: 40
       });
       
       const snapshotResult = await this.createSnapshot(sampleDropletId, process.env.DIGITAL_OCEAN_SAMPLE_SNAPSHOT_NAME);
@@ -700,7 +700,7 @@ server {
       // Step 3: Monitor snapshot creation
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Snapshot creation in progress...',
-        progress: 60
+        progress: 50
       });
       
       let snapshotCompleted = false;
@@ -738,7 +738,7 @@ server {
         } else {
           await Action.updateStatus(actionId, 'in_progress', {
             progressMessage: `Snapshot status: ${actionResult.status}`,
-            progress: 70
+            progress: 60
           });
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
@@ -747,7 +747,7 @@ server {
       // Step 4: Power on the sample droplet
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Powering on sample droplet...',
-        progress: 80
+        progress: 70
       });
       
       await this.powerOnDroplet(sampleDropletId);
@@ -755,7 +755,7 @@ server {
       // Wait for droplet to be powered on
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Waiting for droplet to power on...',
-        progress: 90
+        progress: 80
       });
       
       while (true) {
@@ -769,7 +769,7 @@ server {
       // Step 5: Update settings and mark as completed
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Updating system settings...',
-        progress: 95
+        progress: 85
       });
       
       // Update the default snapshot ID in settings
@@ -789,7 +789,7 @@ server {
         try {
           await Action.updateStatus(actionId, 'in_progress', {
             progressMessage: 'Cleaning up old snapshot...',
-            progress: 98
+            progress: 90
           });
           
           await this.deleteSnapshot(oldSnapshotId);
@@ -817,7 +817,7 @@ server {
       // Final step: Wait 2 minutes and start the application
       await Action.updateStatus(actionId, 'in_progress', {
         progressMessage: 'Waiting 2 minutes before starting application...',
-        progress: 99
+        progress: 95
       });
       
       console.log('Waiting 2 minutes before starting application...');
