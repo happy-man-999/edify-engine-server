@@ -1,52 +1,45 @@
-import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 class EmailService {
   constructor() {
-    this.transporter = null;
-    this.initializeTransporter();
+    this.isConfigured = false;
+    this.initializeSendGrid();
   }
 
-  initializeTransporter() {
-    // Use environment variables for email configuration
-    const emailConfig = {
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT || 587,
-      secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    };
-
-    // Only create transporter if email credentials are provided
-    if (emailConfig.auth.user && emailConfig.auth.pass) {
-      this.transporter = nodemailer.createTransport(emailConfig);
-      console.log('Email service initialized successfully');
+  initializeSendGrid() {
+    // Initialize SendGrid with API key
+    if (process.env.SENDGRID_API_KEY) {
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      this.isConfigured = true;
+      console.log('SendGrid email service initialized successfully');
     } else {
-      console.warn('Email service not configured. Set EMAIL_USER and EMAIL_PASS environment variables.');
+      console.warn('SendGrid not configured. Set SENDGRID_API_KEY environment variable.');
       console.warn('Email verification codes will be returned in API responses for development.');
     }
   }
 
   async sendVerificationCode(email, code, firstName = '') {
-    if (!this.transporter) {
+    if (!this.isConfigured) {
       throw new Error('Email service not configured');
     }
 
-    const mailOptions = {
-      from: `"Edify Engine" <${process.env.EMAIL_USER}>`,
+    const msg = {
       to: email,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
       subject: 'Verify Your Email - Edify Engine',
       html: this.getVerificationEmailTemplate(code, firstName)
     };
 
     try {
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log('Verification email sent:', result.messageId);
-      return { success: true, messageId: result.messageId };
+      const result = await sgMail.send(msg);
+      console.log('Verification email sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
     } catch (error) {
       console.error('Failed to send verification email:', error);
       throw new Error('Failed to send verification email');
@@ -163,21 +156,24 @@ class EmailService {
   }
 
   async sendWelcomeEmail(email, firstName) {
-    if (!this.transporter) {
+    if (!this.isConfigured) {
       throw new Error('Email service not configured');
     }
 
-    const mailOptions = {
-      from: `"Edify Engine" <${process.env.EMAIL_USER}>`,
+    const msg = {
       to: email,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
       subject: 'Welcome to Edify Engine!',
       html: this.getWelcomeEmailTemplate(firstName)
     };
 
     try {
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log('Welcome email sent:', result.messageId);
-      return { success: true, messageId: result.messageId };
+      const result = await sgMail.send(msg);
+      console.log('Welcome email sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
     } catch (error) {
       console.error('Failed to send welcome email:', error);
       throw new Error('Failed to send welcome email');
