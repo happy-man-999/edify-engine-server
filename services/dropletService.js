@@ -394,7 +394,7 @@ class DropletService {
   // Update droplet status from DigitalOcean
   async syncDropletStatus(dropletId) {
     try {
-      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+      const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) }).populate('user');
       if (!droplet) {
         throw new Error('Droplet not found');
       }
