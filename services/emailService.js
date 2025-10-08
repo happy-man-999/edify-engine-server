@@ -275,12 +275,12 @@ class EmailService {
       return { success: false, reason: 'not_configured' };
     }
 
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@edifyengine.com';
+    const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@edifyengine.com';
     
     const msg = {
       to: adminEmail,
       from: {
-        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        email: process.env.ADMIN_NOTIFICATION_EMAIL || 'support@edifyengine.com',
         name: 'Edify Engine Notifications'
       },
       subject: '🎉 New User Signup - Edify Engine',
@@ -399,12 +399,12 @@ class EmailService {
       return { success: false, reason: 'not_configured' };
     }
 
-    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'info@edifyengine.com';
+    const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@edifyengine.com';
     
     const msg = {
       to: adminEmail,
       from: {
-        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        email: process.env.ADMIN_NOTIFICATION_EMAIL || 'support@edifyengine.com',
         name: 'Edify Engine Notifications'
       },
       subject: `💰 Payment Received (${paymentData.paymentMethod}) - $${paymentData.amount.toFixed(2)}`,
