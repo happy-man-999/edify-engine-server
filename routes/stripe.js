@@ -7,6 +7,7 @@ import DropletService from '../services/dropletService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
 import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import webhookService from '../services/webhookService.js';
+import emailService from '../services/emailService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import stripeService from '../services/stripeService.js';
@@ -452,6 +453,21 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
           console.error('Error logging purchase:', logError);
         }
         
+        // Send admin notification email
+        try {
+          await emailService.sendAdminPaymentNotification({
+            amount: amount,
+            currency: currency,
+            userName: `${req.user.firstName} ${req.user.lastName}`,
+            userEmail: req.user.email,
+            itemName: `Edify Engine ${planName} Plan`,
+            paymentMethod: 'Stripe',
+            transactionId: sessionId
+          });
+        } catch (emailError) {
+          console.error('Error sending admin payment notification:', emailError);
+        }
+        
         res.json({ 
           success: true, 
           message: `${planName} plan payment completed and signup progress updated`,
@@ -501,6 +517,21 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         console.error('Error logging new world creation:', logError);
       }
       
+      // Send admin notification email
+      try {
+        await emailService.sendAdminPaymentNotification({
+          amount: amount,
+          currency: currency,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userEmail: req.user.email,
+          itemName: 'New World Creation',
+          paymentMethod: 'Stripe',
+          transactionId: sessionId
+        });
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
+      }
+      
       // Start background processing
       processNewWorldCreation(sessionId, req.user._id, transaction._id, amount, currency, itemName, settings);
       
@@ -540,6 +571,21 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         console.error('Error logging purchase:', logError);
       }
       
+      // Send admin notification email
+      try {
+        await emailService.sendAdminPaymentNotification({
+          amount: amount,
+          currency: currency,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userEmail: req.user.email,
+          itemName: 'Custom Domain',
+          paymentMethod: 'Stripe',
+          transactionId: sessionId
+        });
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
+      }
+      
       try {
         updatedDroplet = await dropletService.updateDropletByDropletId(dropletId, { customDomainPaid: true });
       } catch (error) {
@@ -573,6 +619,21 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         console.error('Error logging purchase:', logError);
       }
 
+      // Send admin notification email
+      try {
+        await emailService.sendAdminPaymentNotification({
+          amount: amount,
+          currency: currency,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userEmail: req.user.email,
+          itemName: itemNames.join(', ') || 'Cart Items',
+          paymentMethod: 'Stripe',
+          transactionId: sessionId
+        });
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
+      }
+
       res.json({ 
         success: true, 
         message: 'Cart purchase payment completed',
@@ -592,6 +653,21 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         });
       } catch (logError) {
         console.error('Error logging purchase:', logError);
+      }
+
+      // Send admin notification email
+      try {
+        await emailService.sendAdminPaymentNotification({
+          amount: amount,
+          currency: currency,
+          userName: `${req.user.firstName} ${req.user.lastName}`,
+          userEmail: req.user.email,
+          itemName: itemName || 'Store Item',
+          paymentMethod: 'Stripe',
+          transactionId: sessionId
+        });
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
       }
 
       let item;
@@ -731,6 +807,20 @@ async function processNewWorldCreation(sessionId, userId, transactionId, amount,
     }
     
     console.log(`Background processing completed for new world creation: ${sessionId}`);
+    
+    // Send completion email to user
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        await emailService.sendDropletCreatedNotification(user.email, {
+          dropletName: dropletName,
+          domain: `${dropletName}.${settings.defaultDnsDomain}`,
+          firstName: user.firstName
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending droplet created notification:', emailError);
+    }
     
     // Emit webhook event for frontend
     webhookService.emitWebhookEvent(userId, 'new-world-created', {

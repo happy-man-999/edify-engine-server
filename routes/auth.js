@@ -7,6 +7,7 @@ import EmailVerification from '../models/EmailVerification.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 import LogService from '../services/logService.js';
+import emailService from '../services/emailService.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -65,6 +66,16 @@ passport.use(new GoogleStrategy({
       });
     } catch (logError) {
       console.error('Error logging user signup:', logError);
+    }
+    
+    // Send admin notification email
+    try {
+      await emailService.sendAdminSignupNotification(
+        newUser.email,
+        `${newUser.firstName} ${newUser.lastName}`
+      );
+    } catch (emailError) {
+      console.error('Error sending admin signup notification:', emailError);
     }
     
     return done(null, newUser);
@@ -127,6 +138,16 @@ router.post('/signup', async (req, res) => {
       });
     } catch (logError) {
       console.error('Error logging user signup:', logError);
+    }
+
+    // Send admin notification email
+    try {
+      await emailService.sendAdminSignupNotification(
+        user.email,
+        `${user.firstName} ${user.lastName}`
+      );
+    } catch (emailError) {
+      console.error('Error sending admin signup notification:', emailError);
     }
 
     // Generate token
@@ -212,6 +233,16 @@ router.post('/signup-with-verification', async (req, res) => {
       });
     } catch (logError) {
       console.error('Error logging user signup:', logError);
+    }
+
+    // Send admin notification email
+    try {
+      await emailService.sendAdminSignupNotification(
+        user.email,
+        `${user.firstName} ${user.lastName}`
+      );
+    } catch (emailError) {
+      console.error('Error sending admin signup notification:', emailError);
     }
 
     // Generate token

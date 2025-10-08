@@ -5,11 +5,13 @@ import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import LogService from '../services/logService.js';
+import emailService from '../services/emailService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
 import webhookService from '../services/webhookService.js';
 import Settings from '../models/Settings.js';
 import jwt from 'jsonwebtoken';
 import Item from '../models/Item.js';
+import User from '../models/User.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -208,6 +210,24 @@ router.post('/payment-success', async (req, res) => {
         console.error('Error logging purchase:', logError);
       }
 
+      // Send admin notification email
+      try {
+        const user = await import('../models/User.js').then(m => m.default.findById(txInfo.userId));
+        if (user) {
+          await emailService.sendAdminPaymentNotification({
+            amount: txInfo.amount,
+            currency: 'SOL',
+            userName: `${user.firstName} ${user.lastName}`,
+            userEmail: user.email,
+            itemName: txInfo.itemName || 'Unknown Item',
+            paymentMethod: 'Solana',
+            transactionId: signature
+          });
+        }
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
+      }
+
       let item;
       try {
         item = await Item.findById(txInfo.itemId);
@@ -256,6 +276,24 @@ router.post('/payment-success', async (req, res) => {
         });
       } catch (logError) {
         console.error('Error logging purchase:', logError);
+      }
+
+      // Send admin notification email
+      try {
+        const user = await import('../models/User.js').then(m => m.default.findById(txInfo.userId));
+        if (user) {
+          await emailService.sendAdminPaymentNotification({
+            amount: txInfo.amount,
+            currency: 'SOL',
+            userName: `${user.firstName} ${user.lastName}`,
+            userEmail: user.email,
+            itemName: itemNames.join(', ') || 'Cart Items',
+            paymentMethod: 'Solana',
+            transactionId: signature
+          });
+        }
+      } catch (emailError) {
+        console.error('Error sending admin payment notification:', emailError);
       }
 
       return res.status(200).json({
@@ -433,6 +471,20 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     }
 
     console.log(`Background processing completed for new world creation: ${signature}`);
+    
+    // Send completion email to user
+    try {
+      const user = await User.findById(userId);
+      if (user) {
+        await emailService.sendDropletCreatedNotification(user.email, {
+          dropletName: dropletName,
+          domain: `${dropletName}.${settings.defaultDnsDomain}`,
+          firstName: user.firstName
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending droplet created notification:', emailError);
+    }
     
     // Emit webhook event for frontend
     webhookService.emitWebhookEvent(userId, 'new-world-created', {

@@ -11,6 +11,7 @@ import Transaction from '../models/Transaction.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
+import emailService from '../services/emailService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
 import stripeService from '../services/stripeService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
@@ -1637,6 +1638,17 @@ async function processAdminDropletCreation(dropletName, userId, adminId, user, s
     }
     
     console.log(`Background processing completed for admin droplet creation: ${dropletName}`);
+    
+    // Send completion email to user
+    try {
+      await emailService.sendDropletCreatedNotification(user.email, {
+        dropletName: dropletName,
+        domain: `${dropletName}.${settings.defaultDnsDomain}`,
+        firstName: user.firstName
+      });
+    } catch (emailError) {
+      console.error('Error sending droplet created notification:', emailError);
+    }
     
   } catch (error) {
     console.error('Background processing error for admin droplet creation:', error);
