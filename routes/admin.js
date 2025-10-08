@@ -1416,4 +1416,247 @@ router.get('/items/stats', requireAdmin, async (req, res) => {
   }
 });
 
+// Create droplet endpoint for admin
+router.post('/droplets/create', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    // Validate input
+    if (!userId) {
+      return res.status(400).json({ 
+        message: 'User ID is required' 
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        message: 'User not found' 
+      });
+    }
+
+    // Get settings for default image
+    const settings = await Settings.getSettings();
+
+    // Generate unique 6-character droplet name (letters and numbers)
+    const generateRandomName = () => {
+      const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      let result = '';
+      for (let i = 0; i < 6; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+      }
+      return result;
+    };
+
+    let dropletName;
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    // Generate unique name
+    while (!isUnique && attempts < maxAttempts) {
+      dropletName = generateRandomName();
+      const existingDroplet = await Droplet.findOne({ name: dropletName });
+      if (!existingDroplet) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      return res.status(500).json({ 
+        message: 'Failed to generate unique droplet name after multiple attempts' 
+      });
+    }
+
+    // Log the droplet creation initiation
+    try {
+      await LogService.createLog({
+        level: 'success',
+        type: 'admin_action',
+        message: `Admin initiated droplet creation for user ${user.email}`,
+        details: {
+          dropletName: dropletName,
+          targetUser: {
+            id: user._id,
+            email: user.email,
+            name: `${user.firstName} ${user.lastName}`
+          }
+        },
+        status: 'processing',
+        userId: req.user._id,
+        metadata: {
+          context: 'admin_droplet_creation'
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging droplet creation initiation:', logError);
+    }
+
+    // Start background processing
+    processAdminDropletCreation(dropletName, userId, req.user._id, user, settings);
+
+    // Return immediately with success message
+    res.status(201).json({
+      success: true,
+      message: `Droplet "${dropletName}" is being created in the background.`,
+      processing: true,
+      droplet: {
+        name: dropletName,
+        status: 'creating',
+        user: {
+          id: user._id,
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating droplet:', error);
+    
+    // Log error
+    try {
+      await LogService.logError({
+        message: 'Failed to create droplet via admin',
+        error: error.message,
+        context: 'admin_droplet_creation',
+        userId: req.user._id
+      });
+    } catch (logError) {
+      console.error('Error logging error:', logError);
+    }
+    
+    res.status(500).json({ 
+      message: 'Failed to create droplet',
+      error: error.message 
+    });
+  }
+});
+
+// Background processing function for admin droplet creation
+async function processAdminDropletCreation(dropletName, userId, adminId, user, settings) {
+  try {
+    console.log(`Starting background processing for admin droplet creation: ${dropletName}`);
+
+    // Create droplet on DigitalOcean
+    const result = await digitalOceanService.createNewDroplet({
+      name: dropletName,
+      image: settings.defaultSnapshotId
+    });
+
+    if (!result.droplet || !result.droplet.id) {
+      throw new Error('Failed to create droplet on DigitalOcean');
+    }
+
+    const dropletId = result.droplet.id;
+
+    // Save droplet information to database
+    let droplet;
+    try {
+      droplet = await dropletService.createDroplet({
+        dropletId: result.droplet.id,
+        name: result.droplet.name,
+        sizeSlug: result.droplet.size_slug,
+        regionSlug: result.droplet.region.slug,
+        status: result.droplet.status,
+        createdAt: new Date(result.droplet.created_at),
+        user: userId,
+        memory: result.droplet.memory,
+        vcpus: result.droplet.vcpus,
+        disk: result.droplet.disk,
+        priceMonthly: result.droplet.size.price_monthly,
+        tags: result.droplet.tags || [],
+        subdomain: dropletName
+      });
+    } catch (error) {
+      console.error('Error saving droplet to database:', error.message);
+    }
+
+    // Assign subdomain
+    await digitalOceanService.assignSubdomain(dropletId, settings.defaultDnsDomain, dropletName);
+    
+    // Log subdomain assignment
+    try {
+      await LogService.logSubdomainAssigned(userId, {
+        subdomain: dropletName,
+        dropletId: dropletId
+      });
+    } catch (logError) {
+      console.error('Error logging subdomain assignment:', logError);
+    }
+
+    // Log successful admin droplet creation
+    try {
+      await LogService.logDropletCreated(adminId, dropletId, {
+        name: dropletName,
+        sizeSlug: result.droplet.size_slug,
+        regionSlug: result.droplet.region.slug,
+        image: settings.defaultSnapshotId,
+        memory: result.droplet.memory,
+        vcpus: result.droplet.vcpus,
+        disk: result.droplet.disk,
+        targetUser: {
+          id: user._id,
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging admin droplet creation:', logError);
+    }
+
+    // Power on droplet and complete setup workflow
+    try {
+      console.log(`Starting complete droplet setup workflow for ${dropletId}`);
+      
+      // Run the complete setup workflow in background
+      digitalOceanService.completeDropletSetup(dropletId, dropletName)
+        .then((result) => {
+          if (result.success) {
+            console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
+          } else {
+            console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
+          }
+        })
+        .catch((setupError) => {
+          console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
+          // Log the setup error but don't fail the entire process
+          LogService.logError({
+            message: 'Complete droplet setup workflow failed',
+            error: setupError.message,
+            context: 'admin_droplet_complete_setup',
+            userId: adminId
+          }).catch(logError => console.error('Error logging setup error:', logError));
+        });
+        
+    } catch (error) {
+      console.error('Error starting droplet setup workflow:', error.message);
+      throw error;
+    }
+    
+    console.log(`Background processing completed for admin droplet creation: ${dropletName}`);
+    
+  } catch (error) {
+    console.error('Background processing error for admin droplet creation:', error);
+    
+    // Log error
+    try {
+      await LogService.logError({
+        message: 'Failed to create droplet in background (admin)',
+        error: error.message,
+        context: 'background_admin_droplet_creation',
+        userId: adminId,
+        metadata: {
+          dropletName: dropletName,
+          targetUserId: userId
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging error:', logError);
+    }
+  }
+}
+
 export default router; 
