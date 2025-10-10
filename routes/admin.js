@@ -25,30 +25,14 @@ const digitalOceanService = new DigitalOceanService(process.env.DIGITAL_OCEAN_TO
 
 const router = express.Router();
 
-// Get current settings (requires user authentication, not admin)
-router.get('/settings', async (req, res) => {
-  try {
-    const settings = await Settings.getSettings();
-    res.json({ settings });
-  } catch (error) {
-    console.error('Error fetching settings:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch settings',
-      error: error.message 
-    });
-  }
-});
-
 // Public endpoint for payment settings (no authentication required)
 router.get('/payment-settings', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
     // Only return payment-related settings for security
     res.json({
-      stripeMode: settings.stripeMode,
-      solanaMode: settings.solanaMode,
-      isTestMode: settings.isTestMode,
-      stripePublicKey: settings.stripePublicKey
+      ...settings,
+      stripeSecretKey: undefined,
     });
   } catch (error) {
     console.error('Error fetching payment settings:', error);
@@ -108,6 +92,20 @@ router.get('/test', (req, res) => {
       role: req.user.role
     }
   });
+});
+
+// Get current settings (requires admin authentication)
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    res.json({ settings });
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch settings',
+      error: error.message 
+    });
+  }
 });
 
 // Get services status
