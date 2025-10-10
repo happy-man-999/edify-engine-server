@@ -31,8 +31,13 @@ router.get('/payment-settings', async (req, res) => {
     const settings = await Settings.getSettings();
     // Only return payment-related settings for security
     res.json({
-      ...settings,
-      stripeSecretKey: undefined,
+      defaultSnapshotId: settings.defaultSnapshotId,
+      defaultDnsDomain: settings.defaultDnsDomain,
+      stripeMode: settings.stripeMode,
+      solanaMode: settings.solanaMode,
+      isTestMode: settings.isTestMode,
+      solanaWalletAddress: settings.solanaWalletAddress,
+      stripePublicKey: settings.stripePublicKey,
     });
   } catch (error) {
     console.error('Error fetching payment settings:', error);
