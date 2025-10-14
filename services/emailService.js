@@ -660,6 +660,9 @@ class EmailService {
             margin: 10px 0;
             font-weight: bold;
           }
+          .button:hover {
+            color: rgba(255,255,255,0.8);
+          }
           .info-box {
             background: #fff3cd;
             border-left: 4px solid #ffc107;
