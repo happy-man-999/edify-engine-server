@@ -401,13 +401,19 @@ class EmailService {
 
     const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@edifyengine.com';
     
+    // Format amount based on payment method
+    const isSolana = paymentData.paymentMethod?.toLowerCase() === 'solana';
+    const amountDisplay = isSolana 
+      ? `${paymentData.amount.toFixed(3)} SOL`
+      : `$${paymentData.amount.toFixed(2)}`;
+    
     const msg = {
       to: adminEmail,
       from: {
         email: process.env.ADMIN_NOTIFICATION_EMAIL || 'support@edifyengine.com',
         name: 'Edify Engine Notifications'
       },
-      subject: `💰 Payment Received (${paymentData.paymentMethod}) - $${paymentData.amount.toFixed(2)}`,
+      subject: `💰 Payment Received (${paymentData.paymentMethod}) - ${amountDisplay}`,
       html: this.getAdminPaymentNotificationTemplate(paymentData)
     };
 
@@ -429,9 +435,15 @@ class EmailService {
       timeStyle: 'long'
     });
 
+    const isSolana = paymentData.paymentMethod?.toLowerCase() === 'solana';
     const paymentMethodBadge = paymentData.paymentMethod === 'Stripe' 
       ? '<span style="background: #635bff; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;">Stripe</span>'
       : '<span style="background: #14f195; color: #000; padding: 4px 12px; border-radius: 4px; font-weight: bold;">Solana</span>';
+    
+    // Format amount based on payment method
+    const amountDisplay = isSolana 
+      ? `${paymentData.amount.toFixed(3)} SOL`
+      : `$${paymentData.amount.toFixed(2)} ${paymentData.currency || 'USD'}`;
 
     return `
       <!DOCTYPE html>
@@ -509,7 +521,7 @@ class EmailService {
           </div>
           
           <div class="amount-box">
-            <div class="amount">$${paymentData.amount.toFixed(2)} ${paymentData.currency || 'USD'}</div>
+            <div class="amount">${amountDisplay}</div>
             <div style="margin-top: 10px;">${paymentMethodBadge}</div>
           </div>
           
