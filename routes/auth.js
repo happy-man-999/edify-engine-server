@@ -313,10 +313,18 @@ router.post('/signin', async (req, res) => {
 // Google OAuth routes
 router.get('/google', (req, res, next) => {
   const from = req.query.from;
+  const callback = req.query.callback;
+  
   if (from === 'signup') {
     // Store the signup context in session or pass it through state
     req.session.signupContext = true;
   }
+  
+  if (from === 'hyperfy' && callback) {
+    // Store the hyperfy callback URL in session
+    req.session.hyperfyCallback = callback;
+  }
+  
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
@@ -324,6 +332,13 @@ router.get('/google/callback',
   passport.authenticate('google', { session: false }),
   (req, res) => {
     const token = generateToken(req.user._id);
+    
+    // Check if this was initiated from hyperfy
+    if (req.session?.hyperfyCallback) {
+      const callbackUrl = req.session.hyperfyCallback;
+      delete req.session.hyperfyCallback; // Clean up session
+      return res.redirect(`${callbackUrl}?token=${token}`);
+    }
     
     // Check if this was initiated from signup
     const fromSignup = req.session?.signupContext || req.query.state === 'signup';
