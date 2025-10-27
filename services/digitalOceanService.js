@@ -240,6 +240,9 @@ class DigitalOceanService {
       await this.executeCommandViaHTTP(dropletIp, `sed -i 's/${domainToReplace}/${newDropletName}.edifyengine.com/g' /var/www/hyperfy/.env`);
       const httpResult = await this.executeCommandViaHTTP(dropletIp, 'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev');
       
+      // Step 5: Wait for 2 minutes and reload nginx
+      console.log(`Waiting 2 minutes before reloading nginx...`);
+      await new Promise(resolve => setTimeout(resolve, 120000)); // 2 minutes
       // Reload nginx to apply any configuration changes
       console.log(`Reloading nginx for droplet ${dropletId}...`);
       try {
