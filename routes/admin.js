@@ -1617,29 +1617,24 @@ async function processAdminDropletCreation(dropletName, userId, adminId, user, s
     try {
       console.log(`Starting complete droplet setup workflow for ${dropletId}`);
       
-      // Run the complete setup workflow in background
-      digitalOceanService.completeDropletSetup(dropletId, dropletName)
-        .then((result) => {
-          if (result.success) {
-            console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
-          } else {
-            console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
-          }
-        })
-        .catch((setupError) => {
-          console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
-          // Log the setup error but don't fail the entire process
-          LogService.logError({
-            message: 'Complete droplet setup workflow failed',
-            error: setupError.message,
-            context: 'admin_droplet_complete_setup',
-            userId: adminId
-          }).catch(logError => console.error('Error logging setup error:', logError));
-        });
+      // Wait for setup to complete
+      const result = await digitalOceanService.completeDropletSetup(dropletId, dropletName);
+      
+      if (result.success) {
+        console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
+      } else {
+        console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
+      }
         
-    } catch (error) {
-      console.error('Error starting droplet setup workflow:', error.message);
-      throw error;
+    } catch (setupError) {
+      console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
+      // Log the setup error but don't fail the entire process
+      LogService.logError({
+        message: 'Complete droplet setup workflow failed',
+        error: setupError.message,
+        context: 'admin_droplet_complete_setup',
+        userId: adminId
+      }).catch(logError => console.error('Error logging setup error:', logError));
     }
     
     console.log(`Background processing completed for admin droplet creation: ${dropletName}`);

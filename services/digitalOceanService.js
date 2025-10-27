@@ -33,7 +33,7 @@ class DigitalOceanService {
       };
 
       // Merge default config with provided config
-      const config = { ...defaultConfig, ...dropletConfig };
+      const config = { ...defaultConfig, ...dropletConfig };console.log('Creating droplet with config:', config);
 
       const response = await axios.post('https://api.digitalocean.com/v2/droplets', config, {
         headers: {
@@ -212,7 +212,7 @@ class DigitalOceanService {
   }
 
   // Complete droplet setup workflow: power on, wait for readiness, SSH access, PM2 management
-  async completeDropletSetup(dropletId, newDropletName) {
+  async completeDropletSetup(dropletId, newDropletName, sourceDomain = null) {
     try {
       console.log(`Starting complete setup workflow for droplet ${dropletId}`);
       
@@ -230,11 +230,29 @@ class DigitalOceanService {
       console.log(`Waiting 2 minutes before making HTTP request...`);
       await new Promise(resolve => setTimeout(resolve, 120000)); // 2 minutes
       
-      // Step 4: Make HTTP POST request to start hyperfy
+      // Step 4: Make HTTP POST request to update .env and start hyperfy
       console.log(`Making HTTP request to start hyperfy on droplet ${dropletId}...`);
-      await this.executeCommandViaHTTP(dropletIp, `sed -i 's/world.edifyengine.com/${newDropletName}.edifyengine.com/g' /var/www/hyperfy/.env`);
+      
+      // Determine which domain to replace in .env file
+      const domainToReplace = sourceDomain || 'world.edifyengine.com';
+      console.log(`Replacing domain in .env: ${domainToReplace} -> ${newDropletName}.edifyengine.com`);
+      
+      await this.executeCommandViaHTTP(dropletIp, `sed -i 's/${domainToReplace}/${newDropletName}.edifyengine.com/g' /var/www/hyperfy/.env`);
       const httpResult = await this.executeCommandViaHTTP(dropletIp, 'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev');
       
+      // Reload nginx to apply any configuration changes
+      console.log(`Reloading nginx for droplet ${dropletId}...`);
+      try {
+        const nginxReloadResult = await this.executeCommandViaHTTP(dropletIp, 'systemctl reload nginx');
+        if (nginxReloadResult.success) {
+          console.log(`Nginx reloaded successfully for droplet ${dropletId}`);
+        } else {
+          console.log(`Nginx reload failed for droplet ${dropletId}: ${nginxReloadResult.message}`);
+        }
+      } catch (nginxError) {
+        console.warn(`Error reloading nginx for droplet ${dropletId}: ${nginxError.message}`);
+      }
+
       if (httpResult.success) {
         console.log(`HTTP request to start hyperfy completed successfully for droplet ${dropletId}`);
         

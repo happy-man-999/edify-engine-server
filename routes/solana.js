@@ -9,7 +9,7 @@ import emailService from '../services/emailService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
 import webhookService from '../services/webhookService.js';
 import Settings from '../models/Settings.js';
-import jwt from 'jsonwebtoken';
+import Snapshot from '../models/Snapshot.js';
 import Item from '../models/Item.js';
 import User from '../models/User.js';
 import dotenv from 'dotenv';
@@ -92,8 +92,12 @@ router.post('/payment-success', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch transaction info' });
     }
 
-    const cartItemsString = metadata?.cartItems;
-    const itemNamesString = metadata?.itemNames;
+    // Use metadata from transaction if available, otherwise fall back to request body metadata
+    const transactionMetadata = txInfo.metadata || metadata || {};console.log('transactionMetadata',transactionMetadata)
+    
+    const cartItemsString = transactionMetadata?.cartItems;
+    const itemNamesString = transactionMetadata?.itemNames;
+    const snapshotId = transactionMetadata?.snapshotId;
 
     let cartItems = null;
     if (cartItemsString) {
@@ -188,7 +192,7 @@ router.post('/payment-success', async (req, res) => {
       }
       
       // Start background processing
-      processNewWorldCreation(signature, txInfo.userId, transaction._id, txInfo.amount, txInfo.itemName);
+      processNewWorldCreation(signature, txInfo.userId, transaction._id, txInfo.amount, txInfo.itemName, snapshotId);
       
       return res.status(200).json({ 
         message: 'Payment confirmed! Your new world is being created in the background.',
@@ -343,7 +347,7 @@ router.post('/payment-success', async (req, res) => {
 });
 
 // Background processing function for new world creation
-async function processNewWorldCreation(signature, userId, transactionId, amount, itemName) {
+async function processNewWorldCreation(signature, userId, transactionId, amount, itemName, snapshotId = null) {
   try {
     console.log(`Starting background processing for new world creation: ${signature}`);
     
@@ -358,8 +362,26 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     // Get settings from MongoDB
     const settings = await Settings.getSettings();
     
+    // Use provided snapshotId or default to settings.defaultSnapshotId
+    const imageToUse = snapshotId || settings.defaultSnapshotId;
+    console.log(`Creating droplet with snapshot ID: ${imageToUse} (${snapshotId ? 'user selected' : 'default'})`);
+    
+    // Get source domain from snapshot if using a user snapshot
+    let sourceDomain = null;
+    if (snapshotId) {
+      try {
+        const snapshot = await Snapshot.findOne({ snapshotId: snapshotId });
+        if (snapshot && snapshot.sourceDomain) {
+          sourceDomain = snapshot.sourceDomain;
+          console.log(`Retrieved source domain from snapshot: ${sourceDomain}`);
+        }
+      } catch (error) {
+        console.warn(`Failed to get source domain from snapshot: ${error.message}`);
+      }
+    }
+    
     // Validate snapshot ID
-    if (!settings.defaultSnapshotId || isNaN(settings.defaultSnapshotId) || settings.defaultSnapshotId <= 0) {
+    if (!imageToUse || isNaN(imageToUse) || imageToUse <= 0) {
       throw new Error('Invalid snapshot configuration');
     }
     
@@ -376,7 +398,7 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     
     const result = await digitalOceanService.createNewDroplet({
       name: dropletName,
-      image: settings.defaultSnapshotId
+      image: imageToUse
     });
 
     if (!result.droplet || !result.droplet.id) {
@@ -445,29 +467,24 @@ async function processNewWorldCreation(signature, userId, transactionId, amount,
     try {
       console.log(`Starting complete droplet setup workflow for ${dropletId}`);
       
-      // Run the complete setup workflow in background
-      digitalOceanService.completeDropletSetup(dropletId, dropletName)
-        .then((result) => {
-          if (result.success) {
-            console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
-          } else {
-            console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
-          }
-        })
-        .catch((setupError) => {
-          console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
-          // Log the setup error but don't fail the entire process
-          LogService.logError({
-            message: 'Complete droplet setup workflow failed',
-            error: setupError.message,
-            context: 'droplet_complete_setup',
-            userId: userId
-          }).catch(logError => console.error('Error logging setup error:', logError));
-        });
+      // Wait for setup to complete
+      const result = await digitalOceanService.completeDropletSetup(dropletId, dropletName, sourceDomain);
+      
+      if (result.success) {
+        console.log(`Complete droplet setup workflow completed successfully for droplet ${dropletId}`);
+      } else {
+        console.log(`Complete droplet setup workflow completed with warnings for droplet ${dropletId}: ${result.message}`);
+      }
         
-    } catch (error) {
-      console.error('Error starting droplet setup workflow:', error.message);
-      throw new Error('Failed to start droplet setup workflow');
+    } catch (setupError) {
+      console.error(`Complete droplet setup workflow failed for droplet ${dropletId}:`, setupError.message);
+      // Log the setup error but don't fail the entire process
+      LogService.logError({
+        message: 'Complete droplet setup workflow failed',
+        error: setupError.message,
+        context: 'droplet_complete_setup',
+        userId: userId
+      }).catch(logError => console.error('Error logging setup error:', logError));
     }
 
     console.log(`Background processing completed for new world creation: ${signature}`);

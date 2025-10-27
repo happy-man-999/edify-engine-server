@@ -8,6 +8,8 @@ import Action from '../models/Action.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import Item from '../models/Item.js';
+import Settings from '../models/Settings.js';
+import Snapshot from '../models/Snapshot.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -529,6 +531,377 @@ router.post('/droplets/:dropletId/restart', authenticateToken, async (req, res) 
     });
   }
 });
+
+// Check if snapshot name exists for the user
+router.get('/snapshots/check-name', authenticateToken, async (req, res) => {
+  try {
+    const { name } = req.query;
+    const userId = req.user._id;
+
+    if (!name) {
+      return res.status(400).json({ 
+        message: 'Snapshot name is required' 
+      });
+    }
+
+    const exists = await Snapshot.nameExists(userId, name);
+
+    res.json({
+      success: true,
+      exists: exists
+    });
+  } catch (error) {
+    console.error('Error checking snapshot name:', error);
+    res.status(500).json({ 
+      message: 'Failed to check snapshot name',
+      error: error.message 
+    });
+  }
+});
+
+// Get user's snapshots
+router.get('/snapshots', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { limit = 20, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const snapshots = await Snapshot.getUserSnapshots(userId, {
+      limit: parseInt(limit),
+      skip
+    });
+
+    res.json({
+      success: true,
+      snapshots: snapshots.map(snapshot => ({
+        id: snapshot._id,
+        snapshotId: snapshot.snapshotId,
+        name: snapshot.name,
+        dropletId: snapshot.dropletId,
+        sizeGigabytes: snapshot.sizeGigabytes,
+        status: snapshot.status,
+        type: snapshot.type,
+        createdAt: snapshot.createdAt,
+        description: snapshot.description
+      })),
+      count: snapshots.length
+    });
+  } catch (error) {
+    console.error('Error fetching user snapshots:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch user snapshots',
+      error: error.message 
+    });
+  }
+});
+
+// Delete user's snapshot
+router.delete('/snapshots/:snapshotId', authenticateToken, async (req, res) => {
+  try {
+    const { snapshotId } = req.params;
+    const userId = req.user._id;
+
+    // Verify the snapshot belongs to the user
+    const snapshot = await Snapshot.findOne({ 
+      snapshotId: parseInt(snapshotId), 
+      user: userId,
+      status: { $ne: 'deleted' }
+    });
+
+    if (!snapshot) {
+      return res.status(404).json({ 
+        message: 'Snapshot not found or you do not have permission to delete it' 
+      });
+    }
+
+    // Delete snapshot from DigitalOcean
+    const digitalOceanService = new DigitalOceanService(
+      process.env.DIGITAL_OCEAN_TOKEN,
+      process.env.DIGITAL_OCEAN_SSH_KEY_ID
+    );
+
+    try {
+      await digitalOceanService.deleteSnapshot(snapshotId);
+      console.log(`Snapshot ${snapshotId} deleted from DigitalOcean`);
+    } catch (doError) {
+      console.error('Error deleting snapshot from DigitalOcean:', doError);
+      return res.status(500).json({ 
+        message: 'Failed to delete snapshot from DigitalOcean',
+        error: doError.message 
+      });
+    }
+
+    // Update snapshot status in database
+    await Snapshot.findOneAndUpdate(
+      { snapshotId: parseInt(snapshotId) },
+      { status: 'deleted' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Snapshot deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting snapshot:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete snapshot',
+      error: error.message 
+    });
+  }
+});
+
+// Backup droplet (create snapshot)
+router.post('/droplets/:dropletId/backup', authenticateToken, async (req, res) => {
+  try {
+    const { dropletId } = req.params;
+    const { snapshotName } = req.body;
+    const userId = req.user._id;
+
+    // Validate snapshot name
+    if (!snapshotName) {
+      return res.status(400).json({ 
+        message: 'Snapshot name is required' 
+      });
+    }
+
+    // Check if snapshot name already exists
+    const nameExists = await Snapshot.nameExists(userId, snapshotName);
+    if (nameExists) {
+      return res.status(400).json({ 
+        message: 'A snapshot with this name already exists' 
+      });
+    }
+
+    // Verify the droplet belongs to the authenticated user
+    const droplet = await Droplet.findOne({ 
+      dropletId: parseInt(dropletId), 
+      user: userId 
+    });
+    
+    if (!droplet && req.user.role !== 'admin') {
+      return res.status(404).json({ 
+        message: 'Droplet not found or access denied' 
+      });
+    }
+
+    // Start background processing for backup
+    processDropletBackup(dropletId, userId, droplet.subdomain, snapshotName, droplet._id);
+
+    res.json({ 
+      success: true,
+      message: 'Snapshot creation initiated successfully. Your droplet will be powered off, snapshotted, and powered back on.',
+      processing: true
+    });
+  } catch (error) {
+    console.error('Error initiating droplet backup:', error);
+    if (error.message === 'Droplet not found') {
+      return res.status(404).json({ message: 'Droplet not found' });
+    }
+    res.status(500).json({ 
+      message: 'Failed to initiate droplet backup',
+      error: error.message 
+    });
+  }
+});
+
+// Background processing function for droplet backup
+async function processDropletBackup(dropletId, userId, subdomain, snapshotName, dropletMongoId) {
+  try {
+    console.log(`Starting background processing for droplet backup: ${dropletId}`);
+
+    const digitalOceanService = new DigitalOceanService(
+      process.env.DIGITAL_OCEAN_TOKEN,
+      process.env.DIGITAL_OCEAN_SSH_KEY_ID
+    );
+
+    // Get droplet info to retrieve current domain
+    const dropletDoc = await Droplet.findById(dropletMongoId);
+    const sourceDomain = dropletDoc.customDomain 
+      ? dropletDoc.customDomain 
+      : `${dropletDoc.subdomain}.edifyengine.com`;
+    console.log(`Source domain for snapshot: ${sourceDomain}`);
+
+    // Step 1: Get droplet IP and run PM2 commands before shutdown
+    console.log(`Getting droplet IP for ${dropletId}...`);
+    const dropletIp = await digitalOceanService.getDropletPublicNetwork(dropletId);
+    console.log(`Droplet IP: ${dropletIp}`);
+
+    // Run PM2 delete hyperfy command
+    console.log(`Running 'pm2 delete hyperfy' on droplet ${dropletId}...`);
+    try {
+      const pm2DeleteResult = await digitalOceanService.executeCommandViaHTTP(dropletIp, 'pm2 delete hyperfy');
+      if (pm2DeleteResult.success) {
+        console.log(`PM2 delete hyperfy completed successfully`);
+      } else {
+        console.warn(`PM2 delete hyperfy failed: ${pm2DeleteResult.message}`);
+      }
+    } catch (pm2Error) {
+      console.warn(`Error running PM2 delete: ${pm2Error.message}`);
+      // Continue even if PM2 delete fails
+    }
+
+    // Run PM2 save command
+    console.log(`Running 'pm2 save' on droplet ${dropletId}...`);
+    try {
+      const pm2SaveResult = await digitalOceanService.executeCommandViaHTTP(dropletIp, 'pm2 save');
+      if (pm2SaveResult.success) {
+        console.log(`PM2 save completed successfully`);
+      } else {
+        console.warn(`PM2 save failed: ${pm2SaveResult.message}`);
+      }
+    } catch (pm2Error) {
+      console.warn(`Error running PM2 save: ${pm2Error.message}`);
+      // Continue even if PM2 save fails
+    }
+
+    // Step 2: Power off the droplet
+    console.log(`Powering off droplet ${dropletId}...`);
+    await digitalOceanService.powerOffDroplet(dropletId);
+
+    // Wait for droplet to be powered off
+    console.log(`Waiting for droplet ${dropletId} to power off...`);
+    let dropletInfo;
+    while (true) {
+      dropletInfo = await digitalOceanService.getDropletInfo(dropletId);
+      if (dropletInfo.droplet.status === 'off') {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    console.log(`Droplet ${dropletId} powered off successfully`);
+
+    // Step 2: Create snapshot
+    console.log(`Creating snapshot ${snapshotName} for droplet ${dropletId}...`);
+    const snapshotResult = await digitalOceanService.createSnapshot(dropletId, snapshotName);
+    const snapshotActionId = snapshotResult.actionId;
+
+    // Wait for snapshot creation to complete
+    console.log(`Waiting for snapshot creation to complete...`);
+    let snapshotCompleted = false;
+    let snapshotId = null;
+
+    while (!snapshotCompleted) {
+      const actionResult = await digitalOceanService.checkActionStatus(snapshotActionId);
+      
+      if (actionResult.status === 'completed') {
+        snapshotCompleted = true;
+        
+        // Get the snapshot ID
+        const snapshotResult = await digitalOceanService.findSnapshotByName(dropletId, snapshotName);
+        if (snapshotResult.success) {
+          snapshotId = snapshotResult.snapshotId;
+          console.log(`Snapshot created successfully with ID: ${snapshotId}`);
+          
+          // Save snapshot info to database
+          try {
+            const snapshotDoc = new Snapshot({
+              snapshotId: snapshotId,
+              name: snapshotName,
+              dropletId: dropletId,
+              droplet: dropletMongoId,
+              user: userId,
+              sizeGigabytes: snapshotResult.snapshot.size_gigabytes || 0,
+              regions: snapshotResult.snapshot.regions || [],
+              createdAt: new Date(snapshotResult.snapshot.created_at),
+              status: 'available',
+              type: 'manual',
+              description: `Backup snapshot for droplet ${subdomain}`,
+              sourceDomain: sourceDomain
+            });
+            await snapshotDoc.save();
+            console.log(`Snapshot info saved to database with source domain: ${sourceDomain}`);
+          } catch (dbError) {
+            console.error('Error saving snapshot to database:', dbError);
+            // Don't fail the entire process if database save fails
+          }
+        } else {
+          throw new Error('Failed to find the newly created snapshot');
+        }
+      } else if (actionResult.status === 'errored') {
+        throw new Error(`Snapshot creation failed: ${actionResult.message || 'Unknown error'}`);
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+
+    // Step 3: Power the droplet back on
+    console.log(`Powering on droplet ${dropletId}...`);
+    await digitalOceanService.powerOnDroplet(dropletId);
+
+    // Wait for droplet to be powered on
+    console.log(`Waiting for droplet ${dropletId} to power on...`);
+    while (true) {
+      dropletInfo = await digitalOceanService.getDropletInfo(dropletId);
+      if (dropletInfo.droplet.status === 'active') {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    console.log(`Droplet ${dropletId} powered on successfully`);
+
+    // Step 4: Wait 2 minutes before restarting hyperfy
+    console.log(`Waiting 2 minutes before restarting hyperfy on droplet ${dropletId}...`);
+    await new Promise(resolve => setTimeout(resolve, 120000)); // 2 minutes
+
+    // Step 5: Restart hyperfy application
+    console.log(`Restarting hyperfy application on droplet ${dropletId}...`);
+    try {
+      const hyperfyStartResult = await digitalOceanService.executeCommandViaHTTP(dropletIp, 'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev');
+      if (hyperfyStartResult.success) {
+        console.log(`Hyperfy application started successfully on droplet ${dropletId}`);
+        
+        // Save PM2 configuration to persist across reboots
+        const pm2SaveResult = await digitalOceanService.executeCommandViaHTTP(dropletIp, 'pm2 save');
+        if (pm2SaveResult.success) {
+          console.log(`PM2 configuration saved successfully for droplet ${dropletId}`);
+        } else {
+          console.warn(`PM2 save failed for droplet ${dropletId}: ${pm2SaveResult.message}`);
+        }
+      } else {
+        console.warn(`Hyperfy start failed for droplet ${dropletId}: ${hyperfyStartResult.message}`);
+      }
+    } catch (hyperfyError) {
+      console.error(`Error restarting hyperfy on droplet ${dropletId}:`, hyperfyError.message);
+      // Don't fail the entire process if hyperfy restart fails
+    }
+
+    console.log(`Snapshot backup process completed successfully for droplet ${dropletId}. Snapshot ID: ${snapshotId}`);
+
+  } catch (error) {
+    console.error(`Error in background droplet backup process for ${dropletId}:`, error);
+    
+    // Try to power the droplet back on and restart services if it failed
+    try {
+      console.log(`Attempting to power on droplet ${dropletId} after error...`);
+      await digitalOceanService.powerOnDroplet(dropletId);
+      
+      // Wait for droplet to be active
+      let dropletInfo;
+      while (true) {
+        dropletInfo = await digitalOceanService.getDropletInfo(dropletId);
+        if (dropletInfo.droplet.status === 'active') {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Wait 2 minutes before restarting services
+      console.log(`Waiting 2 minutes before restarting hyperfy after error recovery...`);
+      await new Promise(resolve => setTimeout(resolve, 120000));
+      
+      // Try to restart hyperfy
+      const dropletIp = await digitalOceanService.getDropletPublicNetwork(dropletId);
+      const hyperfyStartResult = await digitalOceanService.executeCommandViaHTTP(dropletIp, 'cd /var/www/hyperfy && pm2 start npm --name "hyperfy" -- run dev');
+      if (hyperfyStartResult.success) {
+        console.log(`Hyperfy restarted successfully after error recovery`);
+        await digitalOceanService.executeCommandViaHTTP(dropletIp, 'pm2 save');
+      }
+    } catch (powerOnError) {
+      console.error(`Failed to recover droplet ${dropletId} after error:`, powerOnError);
+    }
+  }
+}
 
 // Delete user's droplet
 router.delete('/droplets/:dropletId', authenticateToken, async (req, res) => {

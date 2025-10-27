@@ -126,20 +126,46 @@ class SolanaService {
       const amount = transfers[0]?.amountSOL;
 
       const memoLog = txInfo.meta.logMessages.find(log => log.startsWith("Program log: Memo"));
-      const memo = memoLog?.match(/"(.+?)"/)?.[1]; // Extract the memo string in quotes
+      // Extract memo from first " to end of string (not just to last ")
+      const memo = memoLog?.match(/"(.+)"/)?.[1]; // Extract the memo string in quotes
       
       // Parse memo more robustly - handle cases where userId might contain hyphens
-      let userId, itemId;
+      let userId, itemId, metadata = null;
       if (memo) {
-        // Split on the last hyphen to get userId and itemId
-        const lastHyphenIndex = memo.lastIndexOf('*');
-        if (lastHyphenIndex !== -1) {
-          userId = memo.substring(0, lastHyphenIndex);
-          itemId = memo.substring(lastHyphenIndex + 1);
+        // Check if memo contains metadata (indicated by | separator)
+        const pipeIndex = memo.indexOf('|');
+        
+        if (pipeIndex !== -1) {
+          // Memo contains metadata
+          const mainPart = memo.substring(0, pipeIndex);
+          const metadataString = memo.substring(pipeIndex + 1);
+          
+          // Parse main part (userId*itemId)
+          const lastHyphenIndex = mainPart.lastIndexOf('*');
+          if (lastHyphenIndex !== -1) {
+            userId = mainPart.substring(0, lastHyphenIndex);
+            itemId = mainPart.substring(lastHyphenIndex + 1);
+          } else {
+            userId = mainPart;
+            itemId = null;
+          }
+          
+          // Parse metadata JSON
+          try {
+            metadata = JSON.parse(metadataString.replace(/\\"/g, '"'));
+          } catch (error) {
+            console.warn('Failed to parse metadata from memo:', error);
+          }
         } else {
-          // No hyphens found, treat entire memo as userId
-          userId = memo;
-          itemId = null;
+          // No metadata, just parse userId*itemId
+          const lastHyphenIndex = memo.lastIndexOf('*');
+          if (lastHyphenIndex !== -1) {
+            userId = memo.substring(0, lastHyphenIndex);
+            itemId = memo.substring(lastHyphenIndex + 1);
+          } else {
+            userId = memo;
+            itemId = null;
+          }
         }
       }
 
@@ -147,7 +173,8 @@ class SolanaService {
         sender,
         amount,
         userId,
-        itemId
+        itemId,
+        metadata
       };
     } catch (error) {
       throw new Error(`Failed to fetch transaction info: ${error.message}`);
