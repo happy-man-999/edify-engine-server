@@ -69,6 +69,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Endpoint to get API keys from edify engine .env
+app.get('/api/hyperfy-keys', (req, res) => {
+  try {
+    // Read keys from edify engine's own environment variables
+    // These should be set in the edify engine server's .env file
+    const livekitApiSecret = process.env.LIVEKIT_API_SECRET || null;
+    const aiApiKey = process.env.AI_API_KEY || null;
+    
+    res.json({
+      LIVEKIT_API_SECRET: livekitApiSecret,
+      AI_API_KEY: aiApiKey
+    });
+  } catch (error) {
+    console.error('Error reading API keys from environment:', error);
+    res.status(500).json({ 
+      error: 'Failed to read API keys from environment',
+      message: error.message
+    });
+  }
+});
+
 // Middleware to ensure API responses are JSON
 app.use('/api', (req, res, next) => {
   // Set default content-type for API routes
