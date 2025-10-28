@@ -16,6 +16,8 @@ import calendly from './routes/calendly.js';
 import webhooks from './routes/webhooks.js';
 import emailVerification from './routes/emailVerification.js';
 import dotenv from 'dotenv';
+import Droplet from './models/Droplet.js';
+import Settings from './models/Settings.js';
 
 dotenv.config();
 
@@ -69,8 +71,90 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Middleware to verify request domain against database
+async function validateRequestDomain(req, res, next) {
+  try {
+    // Get domain from request
+    const origin = req.get('origin');
+    const referer = req.get('referer');
+    const host = req.get('host');
+    
+    // Extract hostname from origin, referer, or host
+    let requestDomain = null;
+    if (origin) {
+      try {
+        const url = new URL(origin);
+        requestDomain = url.hostname;
+      } catch (e) {
+        // Invalid origin URL
+      }
+    }
+    
+    if (!requestDomain && referer) {
+      try {
+        const url = new URL(referer);
+        requestDomain = url.hostname;
+      } catch (e) {
+        // Invalid referer URL
+      }
+    }
+    
+    if (!requestDomain && host) {
+      requestDomain = host.split(':')[0]; // Remove port if present
+    }
+    
+    if (!requestDomain) {
+      return res.status(403).json({
+        error: 'Domain validation failed',
+        message: 'Unable to determine request domain'
+      });
+    }
+    
+    // Get default DNS domain from settings
+    const settings = await Settings.getSettings();
+    const defaultDnsDomain = settings.defaultDnsDomain || 'edifyengine.com';
+    
+    // Check if domain matches a custom domain in database
+    const customDomainMatch = await Droplet.findOne({
+      customDomain: requestDomain,
+      status: { $in: ['new', 'active'] }
+    });
+    
+    if (customDomainMatch) {
+      return next();
+    }
+    
+    // Check if domain matches a subdomain pattern (subdomain.defaultDnsDomain)
+    if (requestDomain.endsWith(`.${defaultDnsDomain}`)) {
+      const subdomain = requestDomain.replace(`.${defaultDnsDomain}`, '');
+      const subdomainMatch = await Droplet.findOne({
+        subdomain: subdomain,
+        status: { $in: ['new', 'active'] }
+      });
+      
+      if (subdomainMatch) {
+        return next();
+      }
+    }
+    
+    // Domain not found in database
+    console.warn(`[hyperfy-keys] Request from unauthorized domain: ${requestDomain}`);
+    return res.status(403).json({
+      error: 'Unauthorized domain',
+      message: 'This endpoint is only accessible from registered domains'
+    });
+    
+  } catch (error) {
+    console.error('Error validating request domain:', error);
+    return res.status(500).json({
+      error: 'Domain validation error',
+      message: error.message
+    });
+  }
+}
+
 // Endpoint to get API keys from edify engine .env
-app.get('/api/hyperfy-keys', (req, res) => {
+app.get('/api/hyperfy-keys', validateRequestDomain, async (req, res) => {
   try {
     // Read keys from edify engine's own environment variables
     // These should be set in the edify engine server's .env file
