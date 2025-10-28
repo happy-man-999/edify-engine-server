@@ -110,6 +110,11 @@ async function validateRequestDomain(req, res, next) {
       });
     }
     
+    // Allow world.edifyengine.com as a special case
+    if (requestDomain === 'world.edifyengine.com') {
+      return next();
+    }
+    
     // Get default DNS domain from settings
     const settings = await Settings.getSettings();
     const defaultDnsDomain = settings.defaultDnsDomain || 'edifyengine.com';
