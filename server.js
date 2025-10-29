@@ -159,7 +159,7 @@ async function validateRequestDomain(req, res, next) {
 }
 
 // Endpoint to get API keys from edify engine .env
-app.get('/api/hyperfy-keys', validateRequestDomain, async (req, res) => {
+app.get('/api/hyperfy-keys', /*validateRequestDomain,*/ async (req, res) => {
   try {
     // Read keys from edify engine's own environment variables
     // These should be set in the edify engine server's .env file
