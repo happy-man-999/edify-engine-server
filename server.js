@@ -39,7 +39,7 @@ async function validateCorsOrigin(origin) {
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   
   // Allow the main client URL
-  if (origin === clientUrl || origin === 'https://edifyengine.com' || origin === 'http://edifyengine.com') {
+  if (origin === clientUrl || origin === 'https://edifyengine.com' || origin === 'http://edifyengine.com' || origin === 'https://dev.edifyengine.com' || origin === 'http://dev.edifyengine.com') {
     return true;
   }
   
