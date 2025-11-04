@@ -30,9 +30,86 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/edifyengi
   .catch(err => console.error('MongoDB connection error:', err));
 
 app.set('trust proxy', true);
+
+// CORS origin validation function - checks database for valid domains
+async function validateCorsOrigin(origin) {
+  // Allow requests with no origin (like mobile apps or curl requests)
+  if (!origin) return true;
+  
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  
+  // Allow the main client URL
+  if (origin === clientUrl || origin === 'https://edifyengine.com' || origin === 'http://edifyengine.com') {
+    return true;
+  }
+  
+  // Allow localhost for development
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    return true;
+  }
+  
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname;
+    
+    // Get default DNS domain from settings
+    const settings = await Settings.getSettings();
+    const defaultDnsDomain = settings.defaultDnsDomain || 'edifyengine.com';
+    
+    // Check if it's a subdomain of the default DNS domain
+    if (hostname.endsWith(`.${defaultDnsDomain}`)) {
+      const subdomain = hostname.replace(`.${defaultDnsDomain}`, '');
+      
+      // Check if subdomain exists in database
+      const droplet = await Droplet.findOne({
+        subdomain: subdomain,
+        status: { $in: ['new', 'active'] }
+      });
+      
+      if (droplet) {
+        return true;
+      }
+    }
+    
+    // Check if it's exactly the default DNS domain
+    if (hostname === defaultDnsDomain) {
+      return true;
+    }
+    
+    // Check if it's a custom domain in database
+    const customDomainDroplet = await Droplet.findOne({
+      customDomain: hostname,
+      status: { $in: ['new', 'active'] }
+    });
+    
+    if (customDomainDroplet) {
+      return true;
+    }
+    
+    // Domain not found in database
+    return false;
+  } catch (e) {
+    // Invalid origin URL
+    console.error('Error validating CORS origin:', e);
+    return false;
+  }
+}
+
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: async function (origin, callback) {
+    try {
+      const isValid = await validateCorsOrigin(origin);
+      if (isValid) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS - domain not found in database'));
+      }
+    } catch (error) {
+      console.error('Error in CORS validation:', error);
+      callback(new Error('CORS validation error'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
