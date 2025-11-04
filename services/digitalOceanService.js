@@ -591,6 +591,7 @@ server {
     listen [::]:80;
     server_name ${domain};
 
+    # Redirect all HTTP requests to HTTPS
     return 301 https://$host$request_uri;
 }
 
@@ -598,15 +599,24 @@ server {
 # HTTPS SERVER BLOCK
 ##################################################
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl;        # Enable SSL on IPv4
+    listen [::]:443 ssl;   # Enable SSL on IPv6
     server_name ${domain};
 
+    # Your SSL certificate files (adjust paths as needed)
     ssl_certificate     /etc/letsencrypt/live/${domain}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
 
+    # Allow up to 50 MB uploads
+    client_max_body_size 50M;
+
+    # (Optional) If clients are slow, give the upstream more time
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    # Proxy all requests to your Node.js app
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3000;  # Change 3000 if your app uses a different port
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -615,6 +625,27 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /editor {
+        return 301 /editor/;
+    }
+
+    location /editor/ {
+        proxy_pass http://127.0.0.1:8080/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+
+        # forward client IP info
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # optional: disable buffering to improve terminal responsiveness
+        proxy_buffering off;
     }
 }`;
   }
