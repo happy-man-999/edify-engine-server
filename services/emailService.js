@@ -733,8 +733,10 @@ class EmailService {
           <div class="admin-code-box">
             <strong style="color: #42677D;">🔑 Admin Access Code</strong>
             <div class="admin-code">edify</div>
-            <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">
-              Use this code to access admin features in your world
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666;">
+              <strong>How to use:</strong><br>
+              Click <strong>'Enter'</strong> to open chat and type:<br>
+              <code style="background: white; padding: 5px 10px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 16px; color: #42677D;">/admin edify</code>
             </p>
           </div>
           
@@ -746,7 +748,7 @@ class EmailService {
             <strong>What's next?</strong>
             <ul>
               <li>Access your world using the link above</li>
-              <li>Use the admin code <strong>"edify"</strong> for privileged access</li>
+              <li>Press <strong>'Enter'</strong> to open chat, then type <code style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace;">/admin edify</code> for privileged access</li>
               <li>Customize your space with our building tools</li>
               <li>Invite others to explore your creation</li>
               <li>Monitor your world from your dashboard</li>
