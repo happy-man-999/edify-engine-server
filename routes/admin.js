@@ -1278,6 +1278,55 @@ router.post('/update-snapshot', async (req, res) => {
   }
 });
 
+// Sync Try world environment with latest Hyperfy build
+router.post('/update-try-world', async (req, res) => {
+  try {
+    const tryWorldHost = 'try.edifyengine.com';
+
+    const actionId = `try_world_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    await Action.createAction({
+      actionId,
+      type: 'try_world_update',
+      status: 'pending',
+      userId: req.user._id,
+      metadata: {
+        actionType: 'try_world_update',
+        tryWorldHost
+      },
+      progressMessage: 'Try world update queued'
+    });
+
+    digitalOceanService.startTryWorldUpdateProcess(actionId, req.user._id);
+
+    try {
+      await LogService.logSettingsUpdated(req.user._id, {
+        tryWorldUpdate: {
+          actionId,
+          status: 'initiated',
+          host: tryWorldHost,
+          message: 'Try world update process started'
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging Try world update initiation:', logError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Try world update process initiated',
+      actionId,
+      status: 'pending'
+    });
+  } catch (error) {
+    console.error('Error initiating Try world update:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to initiate Try world update'
+    });
+  }
+});
+
 // ==================== ITEMS MANAGEMENT ====================
 
 // Get all items for admin management

@@ -950,6 +950,127 @@ server {
       });
     }
   }
+
+  async startTryWorldUpdateProcess(actionId, userId) {
+    const tryWorldHost = 'try.edifyengine.com';
+
+    const rsyncCommand =
+      'rsync -avz -e "ssh -i /root/.ssh/hyperfy_rsync_key" root@world.edifyengine.com:/var/www/hyperfy/ /var/www/hyperfy/';
+    const pm2ReloadCommand = 'pm2 reload hyperfy --update-env';
+
+    const markFailed = async (
+      message,
+      code = 'TRY_WORLD_UPDATE_ERROR',
+      details = null,
+      progress = 0
+    ) => {
+      await Action.updateStatus(actionId, 'failed', {
+        progressMessage: message,
+        error: {
+          message,
+          code,
+          details
+        },
+        progress
+      });
+    };
+
+    try {
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Preparing Try world sync...',
+        progress: 10
+      });
+
+      if (!tryWorldHost) {
+        await markFailed(
+          'Failed: Try world host is not configured',
+          'TRY_WORLD_CONFIG_ERROR',
+          null,
+          10
+        );
+        return;
+      }
+
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Syncing latest Hyperfy build to Try world...',
+        progress: 40
+      });
+
+      const rsyncResult = await this.executeCommandViaHTTP(tryWorldHost, rsyncCommand);
+
+      const rsyncSucceeded =
+        rsyncResult &&
+        rsyncResult.success &&
+        (rsyncResult.data?.success === undefined || rsyncResult.data.success === true);
+
+      if (!rsyncSucceeded) {
+        await markFailed(
+          'Failed: Unable to sync Hyperfy files to Try world',
+          'TRY_WORLD_RSYNC_FAILED',
+          rsyncResult?.data || rsyncResult,
+          40
+        );
+        return;
+      }
+
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Reloading Hyperfy service on Try world...',
+        progress: 70
+      });
+
+      const reloadResult = await this.executeCommandViaHTTP(tryWorldHost, pm2ReloadCommand);
+
+      const reloadSucceeded =
+        reloadResult &&
+        reloadResult.success &&
+        (reloadResult.data?.success === undefined || reloadResult.data.success === true);
+
+      if (!reloadSucceeded) {
+        await markFailed(
+          'Failed: Unable to reload Hyperfy service on Try world',
+          'TRY_WORLD_PM2_RELOAD_FAILED',
+          reloadResult?.data || reloadResult,
+          70
+        );
+        return;
+      }
+
+      await Action.updateStatus(actionId, 'in_progress', {
+        progressMessage: 'Finalizing Try world update...',
+        progress: 90
+      });
+
+      try {
+        await LogService.logSettingsUpdated(userId, {
+          tryWorldUpdate: {
+            status: 'completed',
+            host: tryWorldHost,
+            commands: [rsyncCommand, pm2ReloadCommand]
+          }
+        });
+      } catch (logError) {
+        console.error('Error logging Try world update completion:', logError);
+      }
+
+      await Action.updateStatus(actionId, 'completed', {
+        progressMessage: 'Try world updated successfully!',
+        progress: 100,
+        result: {
+          host: tryWorldHost,
+          rsync: rsyncResult?.data || null,
+          pm2: reloadResult?.data || null
+        }
+      });
+    } catch (error) {
+      console.error('Error during Try world update process:', error);
+      await markFailed(
+        error.message || 'Failed: Try world update encountered an unexpected error',
+        'TRY_WORLD_UPDATE_ERROR',
+        null,
+        0
+      );
+    }
+  }
 }
 
 export default DigitalOceanService;
