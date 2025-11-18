@@ -234,12 +234,28 @@ router.post('/payment-success', async (req, res) => {
 
       let item;
       try {
-        item = await Item.findById(txInfo.itemId);
+        item = await Item.findById(txInfo.itemId).populate('creator.id');
       } catch (error) {
         console.error('Error finding item:', error);
       }
 
       if (item) {
+        // Credit 80% of purchase price to creator's account
+        if (item.creator && item.creator.id) {
+          try {
+            const User = (await import('../models/User.js')).default;
+            const creatorEarnings = txInfo.amount * 0.8;
+            await User.findByIdAndUpdate(
+              item.creator.id,
+              { $inc: { balance: creatorEarnings } }
+            );
+            console.log(`Credited $${creatorEarnings} to creator ${item.creator.id} for item purchase`);
+          } catch (creditError) {
+            console.error('Error crediting creator account:', creditError);
+            // Don't fail the transaction if credit fails
+          }
+        }
+
         try {
           let key;
           if (item.downloadAssets.includes(process.env.DO_SPACES_ITEMS_BUCKET_URL)) {
@@ -298,6 +314,41 @@ router.post('/payment-success', async (req, res) => {
         }
       } catch (emailError) {
         console.error('Error sending admin payment notification:', emailError);
+      }
+
+      // Credit 80% to each creator for cart items
+      if (cartItems && cartItems.length > 0) {
+        try {
+          const Item = (await import('../models/Item.js')).default;
+          const User = (await import('../models/User.js')).default;
+          const items = await Item.find({ _id: { $in: cartItems } }).populate('creator.id');
+          const creatorCredits = {};
+          
+          for (const item of items) {
+            if (item.creator && item.creator.id) {
+              const itemPrice = item.priceUSD || 0;
+              const creatorEarnings = itemPrice * 0.8;
+              const creatorId = item.creator.id.toString();
+              
+              if (!creatorCredits[creatorId]) {
+                creatorCredits[creatorId] = 0;
+              }
+              creatorCredits[creatorId] += creatorEarnings;
+            }
+          }
+          
+          // Update each creator's balance
+          for (const [creatorId, earnings] of Object.entries(creatorCredits)) {
+            await User.findByIdAndUpdate(
+              creatorId,
+              { $inc: { balance: earnings } }
+            );
+            console.log(`Credited $${earnings} to creator ${creatorId} for cart purchase`);
+          }
+        } catch (creditError) {
+          console.error('Error crediting creator accounts for cart purchase:', creditError);
+          // Don't fail the transaction if credit fails
+        }
       }
 
       return res.status(200).json({

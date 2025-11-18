@@ -52,6 +52,14 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
     default: Date.now
+  },
+  balance: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  solanaAddress: {
+    type: String
   }
 }, {
   timestamps: true

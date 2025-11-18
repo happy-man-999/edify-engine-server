@@ -955,7 +955,7 @@ server {
     const tryWorldHost = 'try.edifyengine.com';
 
     const rsyncCommand =
-      'rsync -avz -e "ssh -i /root/.ssh/hyperfy_rsync_key" root@world.edifyengine.com:/var/www/hyperfy/ /var/www/hyperfy/';
+      `rsync -avz --exclude='/.env' -e "ssh -i /root/.ssh/hyperfy_rsync_key" root@world.edifyengine.com:/var/www/hyperfy/ /var/www/hyperfy/`;
     const pm2ReloadCommand = 'pm2 reload hyperfy --update-env';
 
     const markFailed = async (

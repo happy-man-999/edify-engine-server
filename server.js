@@ -15,6 +15,7 @@ import dns from './routes/dns.js';
 import calendly from './routes/calendly.js';
 import webhooks from './routes/webhooks.js';
 import emailVerification from './routes/emailVerification.js';
+import withdrawals from './routes/withdrawals.js';
 import dotenv from 'dotenv';
 import Droplet from './models/Droplet.js';
 import Settings from './models/Settings.js';
@@ -274,6 +275,7 @@ app.use('/api/dns', dns);
 app.use('/api/calendly', calendly);
 app.use('/api/webhooks', webhooks);
 app.use('/api/email-verification', emailVerification);
+app.use('/api/withdrawals', withdrawals);
 
 // Error handling middleware
 app.use((error, req, res, next) => {

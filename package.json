@@ -16,6 +16,7 @@
     "@sendgrid/mail": "^8.1.6",
     "@solana/web3.js": "^1.98.2",
     "aws-sdk": "^2.1692.0",
+    "bs58": "^4.0.1",
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
