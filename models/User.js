@@ -50,7 +50,7 @@ const userSchema = new mongoose.Schema({
   },
   plan: {
     type: String,
-    enum: ['basic', 'premium', 'enterprise'],
+    enum: ['basic', 'premium', 'enterprise', 'starter', 'growth', 'studio'],
     default: 'basic'
   },
   lastLogin: {
@@ -64,6 +64,16 @@ const userSchema = new mongoose.Schema({
   },
   solanaAddress: {
     type: String
+  },
+  stripeCustomerId: {
+    type: String,
+    sparse: true,
+    index: true
+  },
+  stripeSubscriptionId: {
+    type: String,
+    sparse: true,
+    index: true
   }
 }, {
   timestamps: true

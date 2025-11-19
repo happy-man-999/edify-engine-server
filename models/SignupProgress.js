@@ -41,7 +41,7 @@ const signupProgressSchema = new mongoose.Schema({
   // Step 6: Customization Level
   customizationLevel: {
     type: String,
-    enum: ['basic-plan', 'premium-plan', 'enterprise-plan'],
+    enum: ['basic-plan', 'premium-plan', 'start-plan', 'growth-plan', 'studio-plan', 'enterprise-plan'],
     default: null
   },
   // Step 7: Payment

@@ -8,6 +8,7 @@ import Settings from '../models/Settings.js';
 import Action from '../models/Action.js';
 import Droplet from '../models/Droplet.js';
 import Transaction from '../models/Transaction.js';
+import DemoEmail from '../models/DemoEmail.js';
 import TransactionService from '../services/transactionService.js';
 import DropletService from '../services/dropletService.js';
 import LogService from '../services/logService.js';
@@ -1755,5 +1756,102 @@ async function processAdminDropletCreation(dropletName, userId, adminId, user, s
     }
   }
 }
+
+// Get demo emails
+router.get('/demo-emails', async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = '',
+      source = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build query
+    const query = {};
+    
+    if (search) {
+      query.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { ipAddress: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (source && source !== 'all') {
+      query.source = source;
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get total count
+    const total = await DemoEmail.countDocuments(query);
+    
+    // Get demo emails
+    const demoEmails = await DemoEmail.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.json({
+      demoEmails,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching demo emails:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch demo emails',
+      error: error.message 
+    });
+  }
+});
+
+// Get demo emails statistics
+router.get('/demo-emails/stats', async (req, res) => {
+  try {
+    const total = await DemoEmail.countDocuments();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayCount = await DemoEmail.countDocuments({
+      createdAt: { $gte: today }
+    });
+    const thisWeek = new Date();
+    thisWeek.setDate(thisWeek.getDate() - 7);
+    const weekCount = await DemoEmail.countDocuments({
+      createdAt: { $gte: thisWeek }
+    });
+    const thisMonth = new Date();
+    thisMonth.setMonth(thisMonth.getMonth() - 1);
+    const monthCount = await DemoEmail.countDocuments({
+      createdAt: { $gte: thisMonth }
+    });
+
+    res.json({
+      stats: {
+        total,
+        today: todayCount,
+        thisWeek: weekCount,
+        thisMonth: monthCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching demo emails stats:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch demo emails statistics',
+      error: error.message 
+    });
+  }
+});
 
 export default router; 

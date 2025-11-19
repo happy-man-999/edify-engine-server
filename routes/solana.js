@@ -13,6 +13,7 @@ import Snapshot from '../models/Snapshot.js';
 import Item from '../models/Item.js';
 import User from '../models/User.js';
 import dotenv from 'dotenv';
+import { getWorldLimit, hasReachedWorldLimit } from '../utils/planUtils.js';
 
 dotenv.config();
 
@@ -180,12 +181,20 @@ router.post('/payment-success', async (req, res) => {
         console.error('Error logging purchase:', logError);
       }
 
-      // Check if user already has 3 worlds before starting background processing
+      // Check if user has reached their world limit based on their plan
+      const user = await User.findById(txInfo.userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
       const userDropletCount = await dropletService.countUserDroplets(txInfo.userId);
-      if (userDropletCount >= 3) {
+      const worldLimit = getWorldLimit(user.plan);
+      
+      if (hasReachedWorldLimit(user.plan, userDropletCount)) {
+        const limitText = worldLimit === null ? 'unlimited' : worldLimit;
         return res.status(400).json({ 
           error: 'World creation limit reached',
-          message: 'You have already reached the maximum limit of 3 worlds. Please delete an existing world before creating a new one.',
+          message: `You have already reached the maximum limit of ${limitText} world${worldLimit !== 1 ? 's' : ''}. Please delete an existing world before creating a new one.`,
           itemType: 'new-world',
           limitReached: true
         });

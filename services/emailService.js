@@ -766,6 +766,175 @@ class EmailService {
       </html>
     `;
   }
+
+  // Send welcome email for demo world email capture
+  async sendDemoWelcomeEmail(email) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping demo welcome email');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const msg = {
+      to: email,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: 'Welcome to Edify Demo World! 🎉',
+      html: this.getDemoWelcomeEmailTemplate()
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Demo welcome email sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send demo welcome email:', error);
+      // Don't throw - we don't want to fail the demo email capture if email sending fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getDemoWelcomeEmailTemplate() {
+    const signupUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Welcome to Edify Demo World</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+          }
+          .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #42677D;
+            margin-bottom: 10px;
+          }
+          .button {
+            display: inline-block;
+            background: linear-gradient(135deg, rgba(100, 100, 255, 0.9) 0%, rgba(200, 100, 255, 0.9) 100%);
+            color: white;
+            padding: 14px 28px;
+            text-decoration: none;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: 600;
+          }
+          .features-box {
+            background: #f8f9fa;
+            border-left: 4px solid #42677D;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .features-box ul {
+            margin: 10px 0;
+            padding-left: 20px;
+          }
+          .features-box li {
+            margin: 8px 0;
+          }
+          .offer-box {
+            background: linear-gradient(135deg, rgba(255, 200, 0, 0.1) 0%, rgba(255, 150, 0, 0.1) 100%);
+            border: 2px solid rgba(255, 200, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .offer-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, rgba(0, 200, 0, 0.2) 0%, rgba(0, 150, 0, 0.2) 100%);
+            border: 1px solid rgba(0, 200, 0, 0.3);
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #00c800;
+            margin-bottom: 10px;
+          }
+          .price {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4ade80;
+            margin: 10px 0;
+          }
+          .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="logo">Edify Engine</div>
+            <h1>Thanks for Trying Our Demo! 🎉</h1>
+          </div>
+          
+          <p>Hi there,</p>
+          
+          <p>Thank you for exploring the Edify Demo World! We hope you enjoyed experiencing our virtual world platform.</p>
+          
+          <div class="features-box">
+            <strong>What you can do with Edify:</strong>
+            <ul>
+              <li>Create immersive 3D virtual worlds</li>
+              <li>Customize your spaces with powerful building tools</li>
+              <li>Collaborate with others in real-time</li>
+              <li>Access premium features and templates</li>
+              <li>Deploy your world on your own domain</li>
+            </ul>
+          </div>
+          
+          <div class="offer-box">
+            <div class="offer-badge">Special Offer: 10% Off</div>
+            <h2 style="margin: 10px 0;">Save 10% on Starter Annual</h2>
+            <div class="price">$252/year</div>
+            <p style="margin: 10px 0; color: #666;">Regular monthly: $29/mo → $348/year</p>
+            <p style="margin: 15px 0 0 0; font-size: 14px;">Save $96 compared to monthly billing</p>
+          </div>
+          
+          <div style="text-align: center;">
+            <a href="${signupUrl}/signup" class="button">Claim Your Offer</a>
+          </div>
+          
+          <p>Ready to build your own virtual world? Sign up now and unlock the full power of Edify Engine!</p>
+          
+          <div class="footer">
+            <p>Questions? We're here to help! Just reply to this email.</p>
+            <p>&copy; 2024 Edify Engine. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }
 
 export default new EmailService();
