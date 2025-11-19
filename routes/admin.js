@@ -353,14 +353,14 @@ router.put('/users/:userId/role', async (req, res) => {
     const { userId } = req.params;
     const { role } = req.body;
 
-    if (!role || !['user', 'contributor', 'admin'].includes(role)) {
+    if (!role || !['lead', 'user', 'admin'].includes(role)) {
       return res.status(400).json({ 
-        message: 'Invalid role. Must be "user", "contributor", or "admin"' 
+        message: 'Invalid role. Must be "lead", "user", or "admin"' 
       });
     }
 
     // Prevent admin from removing their own admin role
-    if (req.user._id.toString() === userId && role === 'user') {
+    if (req.user._id.toString() === userId && role !== 'admin') {
       return res.status(400).json({ 
         message: 'Cannot remove your own admin role' 
       });
@@ -397,6 +397,42 @@ router.put('/users/:userId/role', async (req, res) => {
     console.error('Error updating user role:', error);
     res.status(500).json({ 
       message: 'Failed to update user role',
+      error: error.message 
+    });
+  }
+});
+
+// Update user contributor status
+router.put('/users/:userId/contributor', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { isContributor } = req.body;
+
+    if (typeof isContributor !== 'boolean') {
+      return res.status(400).json({ 
+        message: 'Invalid isContributor value. Must be a boolean' 
+      });
+    }
+
+    const oldUser = await User.findById(userId).select('-password');
+    if (!oldUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { isContributor },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    res.json({ 
+      message: 'User contributor status updated successfully',
+      user 
+    });
+  } catch (error) {
+    console.error('Error updating user contributor status:', error);
+    res.status(500).json({ 
+      message: 'Failed to update user contributor status',
       error: error.message 
     });
   }

@@ -107,7 +107,7 @@ router.post('/', authenticateToken, upload.fields([
 ]), async (req, res) => {
   try {
     // Check if user is admin or contributor
-    if (req.user.role !== 'admin' && req.user.role !== 'contributor') {
+    if (req.user.role !== 'admin' && !req.user.isContributor) {
       return res.status(403).json({ error: 'Admin or contributor access required' });
     }
     
