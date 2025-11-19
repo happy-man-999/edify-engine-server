@@ -240,16 +240,17 @@ router.post('/payment-success', async (req, res) => {
       }
 
       if (item) {
-        // Credit 80% of purchase price to creator's account
+        // Credit 80% of purchase price (in SOL) to creator's account
         if (item.creator && item.creator.id) {
           try {
             const User = (await import('../models/User.js')).default;
+            // txInfo.amount is already in SOL, so credit 80% of SOL amount
             const creatorEarnings = txInfo.amount * 0.8;
             await User.findByIdAndUpdate(
               item.creator.id,
               { $inc: { balance: creatorEarnings } }
             );
-            console.log(`Credited $${creatorEarnings} to creator ${item.creator.id} for item purchase`);
+            console.log(`Credited ${creatorEarnings} SOL to creator ${item.creator.id} for item purchase`);
           } catch (creditError) {
             console.error('Error crediting creator account:', creditError);
             // Don't fail the transaction if credit fails
@@ -316,18 +317,21 @@ router.post('/payment-success', async (req, res) => {
         console.error('Error sending admin payment notification:', emailError);
       }
 
-      // Credit 80% to each creator for cart items
+      // Credit 80% to each creator for cart items (in SOL)
       if (cartItems && cartItems.length > 0) {
         try {
           const Item = (await import('../models/Item.js')).default;
           const User = (await import('../models/User.js')).default;
+          const solanaPaymentService = (await import('../services/solanaPaymentService.js')).default;
           const items = await Item.find({ _id: { $in: cartItems } }).populate('creator.id');
           const creatorCredits = {};
           
+          // Calculate total SOL amount per creator
           for (const item of items) {
             if (item.creator && item.creator.id) {
-              const itemPrice = item.priceUSD || 0;
-              const creatorEarnings = itemPrice * 0.8;
+              // Convert item price from USD to SOL
+              const itemPriceSOL = await solanaPaymentService.convertUsdToSol(item.priceUSD || 0);
+              const creatorEarnings = itemPriceSOL * 0.8;
               const creatorId = item.creator.id.toString();
               
               if (!creatorCredits[creatorId]) {
@@ -337,13 +341,13 @@ router.post('/payment-success', async (req, res) => {
             }
           }
           
-          // Update each creator's balance
+          // Update each creator's balance (in SOL)
           for (const [creatorId, earnings] of Object.entries(creatorCredits)) {
             await User.findByIdAndUpdate(
               creatorId,
               { $inc: { balance: earnings } }
             );
-            console.log(`Credited $${earnings} to creator ${creatorId} for cart purchase`);
+            console.log(`Credited ${earnings} SOL to creator ${creatorId} for cart purchase`);
           }
         } catch (creditError) {
           console.error('Error crediting creator accounts for cart purchase:', creditError);

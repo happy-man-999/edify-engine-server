@@ -156,12 +156,33 @@ router.post('/create-subscription-session', async (req, res) => {
       });
     }
 
-    let priceId = process.env.STRIPE_BASIC_PRICE_ID; // Default to basic plan
-    if (itemId === 'premium-plan') {
-      priceId = process.env.STRIPE_PREMIUM_PRICE_ID;
-    }
-    else if (itemId === 'custom-domain') {
+    // Determine price ID based on plan and billing period
+    const billingPeriod = metadata?.billingPeriod || 'annual';
+    let priceId = process.env.STRIPE_START_ANNUAL_PRICE_ID; // Default to start annual
+    
+    if (itemId === 'start-plan') {
+      priceId = billingPeriod === 'annual' 
+        ? process.env.STRIPE_START_ANNUAL_PRICE_ID 
+        : process.env.STRIPE_START_MONTHLY_PRICE_ID;
+    } else if (itemId === 'growth-plan') {
+      priceId = billingPeriod === 'annual'
+        ? process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID
+        : process.env.STRIPE_GROWTH_MONTHLY_PRICE_ID;
+    } else if (itemId === 'studio-plan') {
+      priceId = billingPeriod === 'annual'
+        ? process.env.STRIPE_STUDIO_ANNUAL_PRICE_ID
+        : process.env.STRIPE_STUDIO_MONTHLY_PRICE_ID;
+    } else if (itemId === 'enterprise-plan') {
+      // Enterprise uses custom pricing, handled separately
+      priceId = process.env.STRIPE_ENTERPRISE_PRICE_ID;
+    } else if (itemId === 'custom-domain') {
       priceId = process.env.STRIPE_CUSTOM_DOMAIN_PRICE_ID;
+    } else if (itemId === 'basic-plan') {
+      // Legacy support for basic plan
+      priceId = process.env.STRIPE_BASIC_PRICE_ID || process.env.STRIPE_START_ANNUAL_PRICE_ID;
+    } else if (itemId === 'premium-plan') {
+      // Legacy support for premium plan
+      priceId = process.env.STRIPE_PREMIUM_PRICE_ID || process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID;
     }
 
     // Create a Checkout Session with metadata

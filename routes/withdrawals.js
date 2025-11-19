@@ -11,14 +11,15 @@ const router = express.Router();
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const { amount, solanaAddress } = req.body;
-    const MIN_WITHDRAWAL_AMOUNT = 50;
+    // Minimum withdrawal amount in SOL
+    const MIN_WITHDRAWAL_AMOUNT_SOL = 0.33333; // Minimum 0.33333 SOL
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid withdrawal amount' });
     }
 
-    if (amount < MIN_WITHDRAWAL_AMOUNT) {
-      return res.status(400).json({ error: `Minimum withdrawal amount is $${MIN_WITHDRAWAL_AMOUNT}` });
+    if (amount < MIN_WITHDRAWAL_AMOUNT_SOL) {
+      return res.status(400).json({ error: `Minimum withdrawal amount is ${MIN_WITHDRAWAL_AMOUNT_SOL} SOL` });
     }
 
     if (!solanaAddress || solanaAddress.trim() === '') {
@@ -154,11 +155,10 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 });
 
-// Approve withdrawal request (admin only)
-router.put('/:id/approve', requireAdmin, async (req, res) => {
+// Get withdrawal approval details (for frontend payment) - admin only
+router.get('/:id/approve-details', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { notes } = req.body;
 
     const withdrawal = await Withdrawal.findById(id).populate('user');
     if (!withdrawal) {
@@ -178,33 +178,42 @@ router.put('/:id/approve', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'User has no Solana address linked. Cannot process withdrawal.' });
     }
 
-    // Note: Balance was already deducted when withdrawal was created, so we don't deduct again
+    // Amount is already in SOL, no conversion needed
+    res.json({
+      success: true,
+      withdrawalId: withdrawal._id,
+      amountSOL: withdrawal.amount, // Amount is already in SOL
+      solanaAddress: solanaAddress,
+      userName: `${user.firstName} ${user.lastName}`,
+      userEmail: user.email
+    });
+  } catch (error) {
+    console.error('Error getting withdrawal approval details:', error);
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      details: error.message 
+    });
+  }
+});
 
-    // Convert USD amount to SOL
-    let amountSOL;
-    try {
-      amountSOL = await solanaPaymentService.convertUsdToSol(withdrawal.amount);
-    } catch (error) {
-      console.error('Error converting USD to SOL:', error);
-      return res.status(500).json({ error: 'Failed to convert amount to SOL' });
+// Confirm withdrawal payment after frontend payment (admin only)
+router.put('/:id/confirm-payment', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentSignature, notes } = req.body;
+
+    if (!paymentSignature) {
+      return res.status(400).json({ error: 'Payment signature is required' });
     }
 
-    // Send SOL payment to user's address
-    let paymentSignature = null;
-    try {
-      const memo = `Withdrawal-${withdrawal._id}`;
-      const paymentResult = await solanaPaymentService.sendSOL(solanaAddress, amountSOL, memo);
-      paymentSignature = paymentResult.signature;
-      console.log(`SOL payment sent: ${paymentSignature} to ${solanaAddress}`);
-    } catch (error) {
-      console.error('Error sending SOL payment:', error);
-      return res.status(500).json({ 
-        error: 'Failed to send SOL payment', 
-        details: error.message 
-      });
+    const withdrawal = await Withdrawal.findById(id).populate('user');
+    if (!withdrawal) {
+      return res.status(404).json({ error: 'Withdrawal request not found' });
     }
 
-    // Balance was already deducted when withdrawal was created, no need to deduct again
+    if (withdrawal.status !== 'pending') {
+      return res.status(400).json({ error: 'Withdrawal request is not pending' });
+    }
 
     // Update withdrawal status
     withdrawal.status = 'approved';
@@ -219,12 +228,10 @@ router.put('/:id/approve', requireAdmin, async (req, res) => {
     res.json({
       success: true,
       withdrawal: withdrawal,
-      paymentSignature: paymentSignature,
-      amountSOL: amountSOL,
-      message: 'Withdrawal request approved and payment sent successfully'
+      message: 'Withdrawal request approved successfully'
     });
   } catch (error) {
-    console.error('Error approving withdrawal:', error);
+    console.error('Error confirming withdrawal payment:', error);
     res.status(500).json({ 
       error: 'Internal server error', 
       details: error.message 
