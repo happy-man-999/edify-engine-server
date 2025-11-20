@@ -951,8 +951,8 @@ server {
     }
   }
 
-  async startTryWorldUpdateProcess(actionId, userId) {
-    const tryWorldHost = 'try.edifyengine.com';
+  async startDemoWorldUpdateProcess(actionId, userId) {
+    const demoWorldHost = 'try.edifyengine.com';
 
     const rsyncCommand =
       `rsync -avz --exclude='/.env' -e "ssh -i /root/.ssh/hyperfy_rsync_key" root@world.edifyengine.com:/var/www/hyperfy/ /var/www/hyperfy/`;
@@ -960,7 +960,7 @@ server {
 
     const markFailed = async (
       message,
-      code = 'TRY_WORLD_UPDATE_ERROR',
+      code = 'DEMO_WORLD_UPDATE_ERROR',
       details = null,
       progress = 0
     ) => {
@@ -977,14 +977,14 @@ server {
 
     try {
       await Action.updateStatus(actionId, 'in_progress', {
-        progressMessage: 'Preparing Try world sync...',
+        progressMessage: 'Preparing Demo world sync...',
         progress: 10
       });
 
-      if (!tryWorldHost) {
+      if (!demoWorldHost) {
         await markFailed(
-          'Failed: Try world host is not configured',
-          'TRY_WORLD_CONFIG_ERROR',
+          'Failed: Demo world host is not configured',
+          'DEMO_WORLD_CONFIG_ERROR',
           null,
           10
         );
@@ -992,11 +992,11 @@ server {
       }
 
       await Action.updateStatus(actionId, 'in_progress', {
-        progressMessage: 'Syncing latest Hyperfy build to Try world...',
+        progressMessage: 'Syncing latest Hyperfy build to Demo world...',
         progress: 40
       });
 
-      const rsyncResult = await this.executeCommandViaHTTP(tryWorldHost, rsyncCommand);
+      const rsyncResult = await this.executeCommandViaHTTP(demoWorldHost, rsyncCommand);
 
       const rsyncSucceeded =
         rsyncResult &&
@@ -1005,8 +1005,8 @@ server {
 
       if (!rsyncSucceeded) {
         await markFailed(
-          'Failed: Unable to sync Hyperfy files to Try world',
-          'TRY_WORLD_RSYNC_FAILED',
+          'Failed: Unable to sync Hyperfy files to Demo world',
+          'DEMO_WORLD_RSYNC_FAILED',
           rsyncResult?.data || rsyncResult,
           40
         );
@@ -1014,11 +1014,11 @@ server {
       }
 
       await Action.updateStatus(actionId, 'in_progress', {
-        progressMessage: 'Reloading Hyperfy service on Try world...',
+        progressMessage: 'Reloading Hyperfy service on Demo world...',
         progress: 70
       });
 
-      const reloadResult = await this.executeCommandViaHTTP(tryWorldHost, pm2ReloadCommand);
+      const reloadResult = await this.executeCommandViaHTTP(demoWorldHost, pm2ReloadCommand);
 
       const reloadSucceeded =
         reloadResult &&
@@ -1027,8 +1027,8 @@ server {
 
       if (!reloadSucceeded) {
         await markFailed(
-          'Failed: Unable to reload Hyperfy service on Try world',
-          'TRY_WORLD_PM2_RELOAD_FAILED',
+          'Failed: Unable to reload Hyperfy service on Demo world',
+          'DEMO_WORLD_PM2_RELOAD_FAILED',
           reloadResult?.data || reloadResult,
           70
         );
@@ -1036,36 +1036,36 @@ server {
       }
 
       await Action.updateStatus(actionId, 'in_progress', {
-        progressMessage: 'Finalizing Try world update...',
+        progressMessage: 'Finalizing Demo world update...',
         progress: 90
       });
 
       try {
         await LogService.logSettingsUpdated(userId, {
-          tryWorldUpdate: {
+          demoWorldUpdate: {
             status: 'completed',
-            host: tryWorldHost,
+            host: demoWorldHost,
             commands: [rsyncCommand, pm2ReloadCommand]
           }
         });
       } catch (logError) {
-        console.error('Error logging Try world update completion:', logError);
+        console.error('Error logging Demo world update completion:', logError);
       }
 
       await Action.updateStatus(actionId, 'completed', {
-        progressMessage: 'Try world updated successfully!',
+        progressMessage: 'Demo world updated successfully!',
         progress: 100,
         result: {
-          host: tryWorldHost,
+          host: demoWorldHost,
           rsync: rsyncResult?.data || null,
           pm2: reloadResult?.data || null
         }
       });
     } catch (error) {
-      console.error('Error during Try world update process:', error);
+      console.error('Error during Demo world update process:', error);
       await markFailed(
-        error.message || 'Failed: Try world update encountered an unexpected error',
-        'TRY_WORLD_UPDATE_ERROR',
+        error.message || 'Failed: Demo world update encountered an unexpected error',
+        'DEMO_WORLD_UPDATE_ERROR',
         null,
         0
       );

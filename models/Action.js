@@ -10,7 +10,7 @@ const actionSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['snapshot_update', 'droplet_creation', 'backup_creation', 'migration', 'try_world_update'],
+    enum: ['snapshot_update', 'droplet_creation', 'backup_creation', 'migration', 'demo_world_update'],
     default: 'snapshot_update'
   },
   status: {
