@@ -161,12 +161,18 @@ router.post('/create-subscription-session', async (req, res) => {
 
     // Determine price ID based on plan and billing period
     const billingPeriod = metadata?.billingPeriod || 'annual';
+    const isDiscounted = metadata?.discounted === true;
     let priceId = process.env.STRIPE_START_ANNUAL_PRICE_ID; // Default to start annual
     
     if (itemId === 'start-plan') {
-      priceId = billingPeriod === 'annual' 
-        ? process.env.STRIPE_START_ANNUAL_PRICE_ID 
-        : process.env.STRIPE_START_MONTHLY_PRICE_ID;
+      if (isDiscounted && billingPeriod === 'annual') {
+        // Use discounted price ID for discounted annual starter plan
+        priceId = process.env.STRIPE_DISCOUNTED_ANNULAR_PRICE_ID || process.env.STRIPE_START_ANNUAL_PRICE_ID;
+      } else {
+        priceId = billingPeriod === 'annual' 
+          ? process.env.STRIPE_START_ANNUAL_PRICE_ID 
+          : process.env.STRIPE_START_MONTHLY_PRICE_ID;
+      }
     } else if (itemId === 'growth-plan') {
       priceId = billingPeriod === 'annual'
         ? process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID

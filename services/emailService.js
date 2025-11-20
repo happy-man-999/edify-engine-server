@@ -913,11 +913,11 @@ class EmailService {
           </div>
           
           <div class="offer-box">
-            <div class="offer-badge">Special Offer: 10% Off</div>
-            <h2 style="margin: 10px 0;">Save 10% on Starter Annual</h2>
-            <div class="price">$252/year</div>
-            <p style="margin: 10px 0; color: #666;">Regular monthly: $29/mo → $348/year</p>
-            <p style="margin: 15px 0 0 0; font-size: 14px;">Save $96 compared to monthly billing</p>
+            <div class="offer-badge">Special Offer: 25% Off</div>
+            <h2 style="margin: 10px 0;">Save 25% on Starter Annual</h2>
+            <div class="price">$189/year</div>
+            <p style="margin: 10px 0; color: #666;">Regular yearly: $252/year</p>
+            <p style="margin: 15px 0 0 0; font-size: 14px;">Save $63 compared to yearly billing</p>
           </div>
           
           <div style="text-align: center;">
