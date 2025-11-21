@@ -255,15 +255,17 @@ router.post('/payment-success', async (req, res) => {
             const User = (await import('../models/User.js')).default;
             // txInfo.amount is already in SOL, so credit 80% of SOL amount
             const creatorEarnings = txInfo.amount * 0.8;
+            // Extract creator ID - handle both populated objects and ObjectIds
+            const creatorId = (item.creator.id._id || item.creator.id).toString();
             await User.findByIdAndUpdate(
-              item.creator.id,
+              creatorId,
               { $inc: { balance: creatorEarnings } }
             );
-            console.log(`Credited ${creatorEarnings} SOL to creator ${item.creator.id} for item purchase`);
+            console.log(`Credited ${creatorEarnings} SOL to creator ${creatorId} for item purchase`);
             
             // Send notification email to item owner
             try {
-              const creator = await User.findById(item.creator.id).select('email firstName lastName');
+              const creator = await User.findById(creatorId).select('email firstName lastName');
               const buyer = await User.findById(txInfo.userId).select('email firstName lastName');
               if (creator && creator.email && buyer) {
                 await emailService.sendItemOwnerPurchaseNotification({
@@ -365,7 +367,10 @@ router.post('/payment-success', async (req, res) => {
               // Convert item price from USD to SOL
               const itemPriceSOL = await solanaPaymentService.convertUsdToSol(item.priceUSD || 0);
               const creatorEarnings = itemPriceSOL * 0.8;
-              const creatorId = item.creator.id.toString();
+              // Extract creator ID - handle both populated objects and ObjectIds
+              // If populated, item.creator.id is a User document with _id property
+              // If not populated, item.creator.id is an ObjectId
+              const creatorId = (item.creator.id._id || item.creator.id).toString();
               
               if (!creatorCredits[creatorId]) {
                 creatorCredits[creatorId] = 0;

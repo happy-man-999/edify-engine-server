@@ -1325,7 +1325,10 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
             if (item.creator && item.creator.id) {
               const itemPrice = item.priceUSD || 0;
               const creatorEarnings = itemPrice * 0.8;
-              const creatorId = item.creator.id.toString();
+              // Extract creator ID - handle both populated objects and ObjectIds
+              // If populated, item.creator.id is a User document with _id property
+              // If not populated, item.creator.id is an ObjectId
+              const creatorId = (item.creator.id._id || item.creator.id).toString();
               
               if (!creatorCredits[creatorId]) {
                 creatorCredits[creatorId] = 0;
@@ -1425,15 +1428,17 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         if (item.creator && item.creator.id) {
           try {
             const creatorEarnings = amount * 0.8;
+            // Extract creator ID - handle both populated objects and ObjectIds
+            const creatorId = (item.creator.id._id || item.creator.id).toString();
             await User.findByIdAndUpdate(
-              item.creator.id,
+              creatorId,
               { $inc: { balance: creatorEarnings } }
             );
-            console.log(`Credited $${creatorEarnings} to creator ${item.creator.id} for item purchase`);
+            console.log(`Credited $${creatorEarnings} to creator ${creatorId} for item purchase`);
             
             // Send notification email to item owner
             try {
-              const creator = await User.findById(item.creator.id).select('email firstName lastName');
+              const creator = await User.findById(creatorId).select('email firstName lastName');
               if (creator && creator.email) {
                 await emailService.sendItemOwnerPurchaseNotification({
                   itemTitle: item.title || itemName || 'Store Item',

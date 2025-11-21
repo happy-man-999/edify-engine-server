@@ -243,6 +243,22 @@ router.put('/:id/confirm-payment', requireAdmin, async (req, res) => {
     }
     await withdrawal.save();
 
+    // Send approval notification email to user
+    try {
+      await emailService.sendWithdrawalApprovalNotification({
+        userEmail: withdrawal.user.email,
+        userName: `${withdrawal.user.firstName} ${withdrawal.user.lastName}`,
+        amount: withdrawal.amount,
+        solanaAddress: withdrawal.solanaAddress,
+        paymentSignature: withdrawal.paymentSignature,
+        withdrawalId: withdrawal._id.toString(),
+        processedAt: withdrawal.processedAt
+      });
+    } catch (emailError) {
+      console.error('Error sending withdrawal approval notification:', emailError);
+      // Don't fail the request if email fails
+    }
+
     res.json({
       success: true,
       withdrawal: withdrawal,
@@ -288,6 +304,22 @@ router.put('/:id/reject', requireAdmin, async (req, res) => {
       withdrawal.notes = notes;
     }
     await withdrawal.save();
+
+    // Send rejection notification email to user
+    try {
+      await emailService.sendWithdrawalRejectionNotification({
+        userEmail: withdrawal.user.email,
+        userName: `${withdrawal.user.firstName} ${withdrawal.user.lastName}`,
+        amount: withdrawal.amount,
+        solanaAddress: withdrawal.solanaAddress,
+        rejectionReason: withdrawal.rejectionReason,
+        withdrawalId: withdrawal._id.toString(),
+        processedAt: withdrawal.processedAt
+      });
+    } catch (emailError) {
+      console.error('Error sending withdrawal rejection notification:', emailError);
+      // Don't fail the request if email fails
+    }
 
     res.json({
       success: true,

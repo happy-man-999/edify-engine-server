@@ -1161,7 +1161,7 @@ class EmailService {
     });
 
     const adminUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
-    const withdrawalManagementUrl = `${adminUrl}/admin/withdrawals`;
+    const withdrawalManagementUrl = `${adminUrl}/admin`;
 
     return `
       <!DOCTYPE html>
@@ -1550,6 +1550,413 @@ class EmailService {
             <p>This is an automated notification from Edify Engine.</p>
             <p>&copy; 2024 Edify Engine. All rights reserved.</p>
           </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Send withdrawal approval notification to user
+  async sendWithdrawalApprovalNotification(withdrawalData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping withdrawal approval notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    // Only send if user email is provided
+    if (!withdrawalData.userEmail) {
+      console.log('No user email provided - skipping withdrawal approval notification');
+      return { success: false, reason: 'no_user_email' };
+    }
+    
+    const msg = {
+      to: withdrawalData.userEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: `✅ Withdrawal Approved - ${withdrawalData.amount.toFixed(3)} SOL`,
+      html: this.getWithdrawalApprovalNotificationTemplate(withdrawalData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Withdrawal approval notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send withdrawal approval notification:', error);
+      // Don't throw - we don't want to fail the withdrawal approval if email fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getWithdrawalApprovalNotificationTemplate(withdrawalData) {
+    const timestamp = new Date().toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    });
+
+    const clientUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const withdrawalsUrl = `${clientUrl}/store?tab=withdrawals`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Withdrawal Approved</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+            text-align: center;
+          }
+          .amount-box {
+            background: #d1fae5;
+            border: 2px solid #10b981;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .amount {
+            font-size: 36px;
+            font-weight: bold;
+            color: #059669;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+          }
+          .info-row:last-child {
+            border-bottom: none;
+          }
+          .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #059669;
+          }
+          .info-value {
+            color: #333;
+            word-break: break-word;
+          }
+          .button {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            background: #d1fae5;
+            color: #065f46;
+          }
+          .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="success-icon">✅</div>
+            <h1 style="margin: 0;">Withdrawal Approved</h1>
+          </div>
+          
+          <p>Great news! Your withdrawal request has been approved and the payment has been processed.</p>
+          
+          <div class="amount-box">
+            <div class="amount">${withdrawalData.amount.toFixed(3)} SOL</div>
+            <div class="status-badge" style="margin-top: 10px;">Status: Approved</div>
+          </div>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <div class="info-label">Amount:</div>
+              <div class="info-value">${withdrawalData.amount.toFixed(6)} SOL</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Solana Address:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.solanaAddress}</div>
+            </div>
+            ${withdrawalData.paymentSignature ? `
+            <div class="info-row">
+              <div class="info-label">Transaction Signature:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.paymentSignature}</div>
+            </div>
+            ` : ''}
+            <div class="info-row">
+              <div class="info-label">Approved At:</div>
+              <div class="info-value">${timestamp}</div>
+            </div>
+            ${withdrawalData.withdrawalId ? `
+            <div class="info-row">
+              <div class="info-label">Withdrawal ID:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.withdrawalId}</div>
+            </div>
+            ` : ''}
+          </div>
+          
+          <div style="text-align: center;">
+            <a href="${withdrawalsUrl}" class="button">View Withdrawals</a>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            The funds have been sent to your Solana wallet. Please allow a few minutes for the transaction to be confirmed on the blockchain.
+          </p>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            This is an automated notification from Edify Engine.
+          </p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Send withdrawal rejection notification to user
+  async sendWithdrawalRejectionNotification(withdrawalData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping withdrawal rejection notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    // Only send if user email is provided
+    if (!withdrawalData.userEmail) {
+      console.log('No user email provided - skipping withdrawal rejection notification');
+      return { success: false, reason: 'no_user_email' };
+    }
+    
+    const msg = {
+      to: withdrawalData.userEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: `❌ Withdrawal Rejected - ${withdrawalData.amount.toFixed(3)} SOL`,
+      html: this.getWithdrawalRejectionNotificationTemplate(withdrawalData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Withdrawal rejection notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send withdrawal rejection notification:', error);
+      // Don't throw - we don't want to fail the withdrawal rejection if email fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getWithdrawalRejectionNotificationTemplate(withdrawalData) {
+    const timestamp = new Date().toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    });
+
+    const clientUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const withdrawalsUrl = `${clientUrl}/store?tab=withdrawals`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Withdrawal Rejected</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+            text-align: center;
+          }
+          .amount-box {
+            background: #fee2e2;
+            border: 2px solid #ef4444;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .amount {
+            font-size: 36px;
+            font-weight: bold;
+            color: #dc2626;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #ef4444;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+          }
+          .info-row:last-child {
+            border-bottom: none;
+          }
+          .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #dc2626;
+          }
+          .info-value {
+            color: #333;
+            word-break: break-word;
+          }
+          .button {
+            display: inline-block;
+            background: #ef4444;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            background: #fee2e2;
+            color: #991b1b;
+          }
+          .rejection-reason-box {
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+          }
+          .rejection-reason-title {
+            font-weight: bold;
+            color: #dc2626;
+            margin-bottom: 8px;
+          }
+          .rejection-reason-text {
+            color: #333;
+            line-height: 1.5;
+          }
+          .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="success-icon">❌</div>
+            <h1 style="margin: 0;">Withdrawal Rejected</h1>
+          </div>
+          
+          <p>We regret to inform you that your withdrawal request has been rejected. Your balance has been restored to your account.</p>
+          
+          <div class="amount-box">
+            <div class="amount">${withdrawalData.amount.toFixed(3)} SOL</div>
+            <div class="status-badge" style="margin-top: 10px;">Status: Rejected</div>
+          </div>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <div class="info-label">Amount:</div>
+              <div class="info-value">${withdrawalData.amount.toFixed(6)} SOL</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Solana Address:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.solanaAddress}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Rejected At:</div>
+              <div class="info-value">${timestamp}</div>
+            </div>
+            ${withdrawalData.withdrawalId ? `
+            <div class="info-row">
+              <div class="info-label">Withdrawal ID:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.withdrawalId}</div>
+            </div>
+            ` : ''}
+          </div>
+          
+          ${withdrawalData.rejectionReason ? `
+          <div class="rejection-reason-box">
+            <div class="rejection-reason-title">Rejection Reason:</div>
+            <div class="rejection-reason-text">${withdrawalData.rejectionReason}</div>
+          </div>
+          ` : ''}
+          
+          <div style="text-align: center;">
+            <a href="${withdrawalsUrl}" class="button">View Withdrawals</a>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            The funds have been restored to your account balance. If you have any questions or concerns, please contact our support team.
+          </p>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            This is an automated notification from Edify Engine.
+          </p>
         </div>
       </body>
       </html>
