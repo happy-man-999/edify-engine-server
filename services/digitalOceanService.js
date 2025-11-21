@@ -952,7 +952,7 @@ server {
   }
 
   async startDemoWorldUpdateProcess(actionId, userId) {
-    const demoWorldHost = 'try.edifyengine.com';
+    const demoWorldHost = 'demo.edifyengine.com';
 
     const rsyncCommand =
       `rsync -avz --exclude='/.env' -e "ssh -i /root/.ssh/hyperfy_rsync_key" root@world.edifyengine.com:/var/www/hyperfy/ /var/www/hyperfy/`;

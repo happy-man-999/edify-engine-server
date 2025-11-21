@@ -1319,6 +1319,7 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
         try {
           const items = await Item.find({ _id: { $in: cartItems } }).populate('creator.id');
           const creatorCredits = {};
+          const creatorItems = {}; // Track items per creator for notifications
           
           for (const item of items) {
             if (item.creator && item.creator.id) {
@@ -1328,18 +1329,47 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
               
               if (!creatorCredits[creatorId]) {
                 creatorCredits[creatorId] = 0;
+                creatorItems[creatorId] = [];
               }
               creatorCredits[creatorId] += creatorEarnings;
+              creatorItems[creatorId].push(item);
             }
           }
           
-          // Update each creator's balance
+          // Update each creator's balance and send notifications
           for (const [creatorId, earnings] of Object.entries(creatorCredits)) {
             await User.findByIdAndUpdate(
               creatorId,
               { $inc: { balance: earnings } }
             );
             console.log(`Credited $${earnings} to creator ${creatorId} for cart purchase`);
+            
+            // Send notification email to item owner
+            try {
+              const creator = await User.findById(creatorId).select('email firstName lastName');
+              if (creator && creator.email && creatorItems[creatorId] && creatorItems[creatorId].length > 0) {
+                // For cart purchases, notify about all items purchased from this creator
+                const itemsList = creatorItems[creatorId].map(i => i.title).join(', ');
+                await emailService.sendItemOwnerPurchaseNotification({
+                  itemTitle: creatorItems[creatorId].length === 1 
+                    ? creatorItems[creatorId][0].title 
+                    : `${creatorItems[creatorId].length} items from your store`,
+                  itemType: 'cart',
+                  amount: earnings / 0.8, // Total purchase amount (earnings / 0.8)
+                  currency: currency || 'USD',
+                  earnings: earnings,
+                  paymentMethod: 'Stripe',
+                  buyerName: `${req.user.firstName} ${req.user.lastName}`,
+                  buyerEmail: req.user.email,
+                  ownerEmail: creator.email,
+                  transactionId: sessionId,
+                  itemsList: itemsList
+                });
+              }
+            } catch (emailError) {
+              console.error('Error sending item owner purchase notification:', emailError);
+              // Don't fail the transaction if email fails
+            }
           }
         } catch (creditError) {
           console.error('Error crediting creator accounts for cart purchase:', creditError);
@@ -1400,6 +1430,28 @@ router.post('/payment-success', authenticateToken, async (req, res) => {
               { $inc: { balance: creatorEarnings } }
             );
             console.log(`Credited $${creatorEarnings} to creator ${item.creator.id} for item purchase`);
+            
+            // Send notification email to item owner
+            try {
+              const creator = await User.findById(item.creator.id).select('email firstName lastName');
+              if (creator && creator.email) {
+                await emailService.sendItemOwnerPurchaseNotification({
+                  itemTitle: item.title || itemName || 'Store Item',
+                  itemType: item.type || 'item',
+                  amount: amount,
+                  currency: currency || 'USD',
+                  earnings: creatorEarnings,
+                  paymentMethod: 'Stripe',
+                  buyerName: `${req.user.firstName} ${req.user.lastName}`,
+                  buyerEmail: req.user.email,
+                  ownerEmail: creator.email,
+                  transactionId: sessionId
+                });
+              }
+            } catch (emailError) {
+              console.error('Error sending item owner purchase notification:', emailError);
+              // Don't fail the transaction if email fails
+            }
           } catch (creditError) {
             console.error('Error crediting creator account:', creditError);
             // Don't fail the transaction if credit fails

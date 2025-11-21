@@ -260,6 +260,29 @@ router.post('/payment-success', async (req, res) => {
               { $inc: { balance: creatorEarnings } }
             );
             console.log(`Credited ${creatorEarnings} SOL to creator ${item.creator.id} for item purchase`);
+            
+            // Send notification email to item owner
+            try {
+              const creator = await User.findById(item.creator.id).select('email firstName lastName');
+              const buyer = await User.findById(txInfo.userId).select('email firstName lastName');
+              if (creator && creator.email && buyer) {
+                await emailService.sendItemOwnerPurchaseNotification({
+                  itemTitle: item.title || txInfo.itemName || 'Store Item',
+                  itemType: item.type || 'item',
+                  amount: txInfo.amount,
+                  currency: 'SOL',
+                  earnings: creatorEarnings,
+                  paymentMethod: 'Solana',
+                  buyerName: `${buyer.firstName} ${buyer.lastName}`,
+                  buyerEmail: buyer.email,
+                  ownerEmail: creator.email,
+                  transactionId: signature
+                });
+              }
+            } catch (emailError) {
+              console.error('Error sending item owner purchase notification:', emailError);
+              // Don't fail the transaction if email fails
+            }
           } catch (creditError) {
             console.error('Error crediting creator account:', creditError);
             // Don't fail the transaction if credit fails
@@ -334,6 +357,7 @@ router.post('/payment-success', async (req, res) => {
           const solanaPaymentService = (await import('../services/solanaPaymentService.js')).default;
           const items = await Item.find({ _id: { $in: cartItems } }).populate('creator.id');
           const creatorCredits = {};
+          const creatorItems = {}; // Track items per creator for notifications
           
           // Calculate total SOL amount per creator
           for (const item of items) {
@@ -345,18 +369,48 @@ router.post('/payment-success', async (req, res) => {
               
               if (!creatorCredits[creatorId]) {
                 creatorCredits[creatorId] = 0;
+                creatorItems[creatorId] = [];
               }
               creatorCredits[creatorId] += creatorEarnings;
+              creatorItems[creatorId].push(item);
             }
           }
           
-          // Update each creator's balance (in SOL)
+          // Update each creator's balance (in SOL) and send notifications
           for (const [creatorId, earnings] of Object.entries(creatorCredits)) {
             await User.findByIdAndUpdate(
               creatorId,
               { $inc: { balance: earnings } }
             );
             console.log(`Credited ${earnings} SOL to creator ${creatorId} for cart purchase`);
+            
+            // Send notification email to item owner
+            try {
+              const creator = await User.findById(creatorId).select('email firstName lastName');
+              const buyer = await User.findById(txInfo.userId).select('email firstName lastName');
+              if (creator && creator.email && buyer && creatorItems[creatorId] && creatorItems[creatorId].length > 0) {
+                // For cart purchases, notify about all items purchased from this creator
+                const itemsList = creatorItems[creatorId].map(i => i.title).join(', ');
+                await emailService.sendItemOwnerPurchaseNotification({
+                  itemTitle: creatorItems[creatorId].length === 1 
+                    ? creatorItems[creatorId][0].title 
+                    : `${creatorItems[creatorId].length} items from your store`,
+                  itemType: 'cart',
+                  amount: earnings / 0.8, // Total purchase amount (earnings / 0.8)
+                  currency: 'SOL',
+                  earnings: earnings,
+                  paymentMethod: 'Solana',
+                  buyerName: `${buyer.firstName} ${buyer.lastName}`,
+                  buyerEmail: buyer.email,
+                  ownerEmail: creator.email,
+                  transactionId: signature,
+                  itemsList: itemsList
+                });
+              }
+            } catch (emailError) {
+              console.error('Error sending item owner purchase notification:', emailError);
+              // Don't fail the transaction if email fails
+            }
           }
         } catch (creditError) {
           console.error('Error crediting creator accounts for cart purchase:', creditError);

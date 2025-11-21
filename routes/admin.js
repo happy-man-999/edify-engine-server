@@ -1318,7 +1318,7 @@ router.post('/update-snapshot', async (req, res) => {
 // Sync Demo world environment with latest Hyperfy build
 router.post('/update-demo-world', async (req, res) => {
   try {
-    const demoWorldHost = 'try.edifyengine.com';
+    const demoWorldHost = 'demo.edifyengine.com';
 
     const actionId = `demo_world_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 

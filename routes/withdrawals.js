@@ -4,6 +4,7 @@ import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
 import { requireAdmin } from '../middleware/admin.js';
 import solanaPaymentService from '../services/solanaPaymentService.js';
+import emailService from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -59,6 +60,23 @@ router.post('/', authenticateToken, async (req, res) => {
     });
 
     await withdrawal.save();
+
+    // Send admin notification if contributor requested the withdrawal (not admin)
+    if (req.user.role !== 'admin' && req.user.isContributor) {
+      try {
+        await emailService.sendAdminWithdrawalRequestNotification({
+          amount: withdrawal.amount,
+          contributorName: `${req.user.firstName} ${req.user.lastName}`,
+          contributorEmail: req.user.email,
+          solanaAddress: withdrawal.solanaAddress,
+          withdrawalId: withdrawal._id.toString(),
+          status: withdrawal.status
+        });
+      } catch (emailError) {
+        console.error('Error sending admin withdrawal request notification:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
 
     res.status(201).json({
       success: true,

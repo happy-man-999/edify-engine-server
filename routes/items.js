@@ -6,6 +6,7 @@ import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js'
 import Droplet from '../models/Droplet.js';
 import Transaction from '../models/Transaction.js';
 import User from '../models/User.js';
+import emailService from '../services/emailService.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -344,6 +345,25 @@ router.post('/', authenticateToken, upload.fields([
     
     const item = new Item(itemData);
     await item.save();
+    
+    // Send admin notification if contributor uploaded the item (not admin)
+    if (req.user.role !== 'admin' && req.user.isContributor) {
+      try {
+        await emailService.sendAdminItemUploadNotification({
+          title: item.title,
+          type: item.type,
+          category: item.category,
+          priceUSD: item.priceUSD,
+          contributorName: `${req.user.firstName} ${req.user.lastName}`,
+          contributorEmail: req.user.email,
+          itemId: item._id.toString(),
+          status: item.status
+        });
+      } catch (emailError) {
+        console.error('Error sending admin item upload notification:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
     
     res.status(201).json({
       success: true,

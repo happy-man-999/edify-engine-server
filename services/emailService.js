@@ -935,6 +935,626 @@ class EmailService {
       </html>
     `;
   }
+
+  // Send admin notification for contributor item upload
+  async sendAdminItemUploadNotification(itemData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping admin item upload notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@edifyengine.com';
+    
+    const msg = {
+      to: adminEmail,
+      from: {
+        email: process.env.ADMIN_NOTIFICATION_EMAIL || 'support@edifyengine.com',
+        name: 'Edify Engine Notifications'
+      },
+      subject: `📦 New Item Upload - ${itemData.title}`,
+      html: this.getAdminItemUploadNotificationTemplate(itemData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Admin item upload notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send admin item upload notification:', error);
+      // Don't throw - we don't want to fail the upload if admin notification fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getAdminItemUploadNotificationTemplate(itemData) {
+    const timestamp = new Date().toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    });
+
+    const adminUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const itemManagementUrl = `${adminUrl}/admin/items`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>New Item Upload</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #42677D 0%, #5a8aa6 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+          }
+          .item-box {
+            background: #f0f9ff;
+            border: 2px solid #42677D;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+          }
+          .item-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #42677D;
+            margin-bottom: 10px;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #42677D;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+          }
+          .info-row:last-child {
+            border-bottom: none;
+          }
+          .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #42677D;
+          }
+          .info-value {
+            color: #333;
+            word-break: break-word;
+          }
+          .button {
+            display: inline-block;
+            background: #42677D;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+          }
+          .status-unapproved {
+            background: #fef3c7;
+            color: #92400e;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📦 New Item Upload</h1>
+          </div>
+          
+          <p>A contributor has uploaded a new item that requires your approval.</p>
+          
+          <div class="item-box">
+            <div class="item-title">${itemData.title}</div>
+            <div class="status-badge status-unapproved">Status: ${itemData.status || 'unapproved'}</div>
+          </div>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <div class="info-label">Contributor:</div>
+              <div class="info-value">${itemData.contributorName}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Contributor Email:</div>
+              <div class="info-value">${itemData.contributorEmail}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Item Type:</div>
+              <div class="info-value">${itemData.type}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Category:</div>
+              <div class="info-value">${itemData.category}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Price:</div>
+              <div class="info-value">$${itemData.priceUSD?.toFixed(2) || '0.00'}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Item ID:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${itemData.itemId}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Upload Time:</div>
+              <div class="info-value">${timestamp}</div>
+            </div>
+          </div>
+          
+          <div style="text-align: center;">
+            <a href="${itemManagementUrl}" class="button">Review Item</a>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            This is an automated notification from Edify Engine.
+          </p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Send admin notification for contributor withdrawal request
+  async sendAdminWithdrawalRequestNotification(withdrawalData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping admin withdrawal request notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const adminEmail = process.env.SENDGRID_FROM_EMAIL || 'info@edifyengine.com';
+    
+    const msg = {
+      to: adminEmail,
+      from: {
+        email: process.env.ADMIN_NOTIFICATION_EMAIL || 'support@edifyengine.com',
+        name: 'Edify Engine Notifications'
+      },
+      subject: `💰 Withdrawal Request - ${withdrawalData.amount.toFixed(3)} SOL`,
+      html: this.getAdminWithdrawalRequestNotificationTemplate(withdrawalData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Admin withdrawal request notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send admin withdrawal request notification:', error);
+      // Don't throw - we don't want to fail the withdrawal request if admin notification fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getAdminWithdrawalRequestNotificationTemplate(withdrawalData) {
+    const timestamp = new Date().toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    });
+
+    const adminUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const withdrawalManagementUrl = `${adminUrl}/admin/withdrawals`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Withdrawal Request</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+          }
+          .amount-box {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .amount {
+            font-size: 36px;
+            font-weight: bold;
+            color: #f59e0b;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+          }
+          .info-row:last-child {
+            border-bottom: none;
+          }
+          .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #f59e0b;
+          }
+          .info-value {
+            color: #333;
+            word-break: break-word;
+          }
+          .button {
+            display: inline-block;
+            background: #f59e0b;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            background: #fef3c7;
+            color: #92400e;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">💰 Withdrawal Request</h1>
+          </div>
+          
+          <p>A contributor has requested a withdrawal that requires your approval.</p>
+          
+          <div class="amount-box">
+            <div class="amount">${withdrawalData.amount.toFixed(3)} SOL</div>
+            <div class="status-badge" style="margin-top: 10px;">Status: ${withdrawalData.status || 'pending'}</div>
+          </div>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <div class="info-label">Contributor:</div>
+              <div class="info-value">${withdrawalData.contributorName}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Contributor Email:</div>
+              <div class="info-value">${withdrawalData.contributorEmail}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Solana Address:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.solanaAddress}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Withdrawal ID:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${withdrawalData.withdrawalId}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Request Time:</div>
+              <div class="info-value">${timestamp}</div>
+            </div>
+          </div>
+          
+          <div style="text-align: center;">
+            <a href="${withdrawalManagementUrl}" class="button">Review Withdrawal</a>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            This is an automated notification from Edify Engine.
+          </p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Send notification to item owner when their item is purchased
+  async sendItemOwnerPurchaseNotification(purchaseData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping item owner purchase notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    // Only send if owner email is provided
+    if (!purchaseData.ownerEmail) {
+      console.log('No owner email provided - skipping item owner purchase notification');
+      return { success: false, reason: 'no_owner_email' };
+    }
+    
+    const msg = {
+      to: purchaseData.ownerEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: `💰 Your Item Was Purchased - ${purchaseData.itemTitle}`,
+      html: this.getItemOwnerPurchaseNotificationTemplate(purchaseData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Item owner purchase notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send item owner purchase notification:', error);
+      // Don't throw - we don't want to fail the purchase if notification fails
+      return { success: false, error: error.message };
+    }
+  }
+
+  getItemOwnerPurchaseNotificationTemplate(purchaseData) {
+    const timestamp = new Date().toLocaleString('en-US', { 
+      timeZone: 'America/New_York',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    });
+
+    const isSolana = purchaseData.paymentMethod?.toLowerCase() === 'solana';
+    const amountDisplay = isSolana 
+      ? `${purchaseData.amount.toFixed(3)} SOL`
+      : `$${purchaseData.amount.toFixed(2)} ${purchaseData.currency || 'USD'}`;
+    
+    const earningsDisplay = isSolana
+      ? `${purchaseData.earnings.toFixed(3)} SOL`
+      : `$${purchaseData.earnings.toFixed(2)} ${purchaseData.currency || 'USD'}`;
+
+    const contributorUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const contributeUrl = `${contributorUrl}/contribute`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Item Was Purchased</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+          }
+          .item-box {
+            background: #f0fdf4;
+            border: 2px solid #10b981;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+          }
+          .item-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #10b981;
+            margin-bottom: 10px;
+          }
+          .amount-box {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #f59e0b;
+            margin-bottom: 5px;
+          }
+          .earnings-box {
+            background: #dbeafe;
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .items-list-box {
+            background: #f0fdf4;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .items-list {
+            margin: 10px 0;
+            padding-left: 20px;
+          }
+          .items-list li {
+            margin: 8px 0;
+            color: #333;
+          }
+          .earnings {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3b82f6;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+          }
+          .info-row:last-child {
+            border-bottom: none;
+          }
+          .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #10b981;
+          }
+          .info-value {
+            color: #333;
+            word-break: break-word;
+          }
+          .button {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">💰 Your Item Was Purchased!</h1>
+          </div>
+          
+          <p>Great news! Someone just purchased your item!</p>
+          
+          <div class="item-box">
+            <div class="item-title">${purchaseData.itemTitle}</div>
+          </div>
+          
+          ${purchaseData.itemsList ? `
+          <div class="items-list-box">
+            <strong style="color: #10b981; display: block; margin-bottom: 10px;">Items Purchased:</strong>
+            <ul class="items-list">
+              ${purchaseData.itemsList.split(', ').map(item => `<li>${item}</li>`).join('')}
+            </ul>
+          </div>
+          ` : ''}
+          
+          <div class="amount-box">
+            <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Purchase Amount</div>
+            <div class="amount">${amountDisplay}</div>
+            <div style="color: #666; font-size: 12px; margin-top: 5px;">Payment Method: ${purchaseData.paymentMethod}</div>
+          </div>
+          
+          <div class="earnings-box">
+            <div style="color: #666; font-size: 14px; margin-bottom: 5px;">Your Earnings (80%)</div>
+            <div class="earnings">${earningsDisplay}</div>
+            <div style="color: #666; font-size: 12px; margin-top: 5px;">Credited to your account balance</div>
+          </div>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <div class="info-label">Buyer Name:</div>
+              <div class="info-value">${purchaseData.buyerName}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Buyer Email:</div>
+              <div class="info-value">${purchaseData.buyerEmail}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Item Type:</div>
+              <div class="info-value">${purchaseData.itemType}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Transaction ID:</div>
+              <div class="info-value" style="font-family: monospace; font-size: 12px;">${purchaseData.transactionId}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-label">Purchase Time:</div>
+              <div class="info-value">${timestamp}</div>
+            </div>
+          </div>
+          
+          <div style="text-align: center;">
+            <a href="${contributeUrl}" class="button">View Your Earnings</a>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            Thank you for contributing to Edify Engine! Your earnings have been automatically credited to your account balance.
+          </p>
+          
+          <div class="footer">
+            <p>This is an automated notification from Edify Engine.</p>
+            <p>&copy; 2024 Edify Engine. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }
 
 export default new EmailService();
