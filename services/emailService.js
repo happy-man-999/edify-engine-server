@@ -1962,6 +1962,300 @@ class EmailService {
       </html>
     `;
   }
+
+  // Send notification to contributor when their item is approved
+  async sendItemApprovalNotification(itemData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping item approval notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    if (!itemData.contributorEmail) {
+      console.log('No contributor email provided - skipping item approval notification');
+      return { success: false, reason: 'no_contributor_email' };
+    }
+
+    const msg = {
+      to: itemData.contributorEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: `✅ Your Item Has Been Approved - ${itemData.itemTitle}`,
+      html: this.getItemApprovalNotificationTemplate(itemData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Item approval notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send item approval notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  getItemApprovalNotificationTemplate(itemData) {
+    const contributorUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const storeUrl = `${contributorUrl}/store`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Item Approved</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+            text-align: center;
+          }
+          .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+          }
+          .item-box {
+            background: #f0fdf4;
+            border: 2px solid #10b981;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+          }
+          .item-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #10b981;
+            margin-bottom: 10px;
+          }
+          .button {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="success-icon">✅</div>
+            <h1>Item Approved!</h1>
+          </div>
+          
+          <p>Hi ${itemData.contributorName || 'there'},</p>
+          
+          <p>Great news! Your item has been approved and is now live in the Edify Engine store.</p>
+          
+          <div class="item-box">
+            <div class="item-title">${itemData.itemTitle}</div>
+            ${itemData.itemType ? `<p><strong>Type:</strong> ${itemData.itemType}</p>` : ''}
+            ${itemData.priceUSD ? `<p><strong>Price:</strong> $${itemData.priceUSD.toFixed(2)}</p>` : ''}
+          </div>
+          
+          <div class="info-box">
+            <p><strong>What's next?</strong></p>
+            <ul>
+              <li>Your item is now visible to all users in the store</li>
+              <li>You'll earn 80% of each purchase made</li>
+              <li>Earnings will be credited to your balance automatically</li>
+              <li>You can track your earnings on the Contribute page</li>
+            </ul>
+          </div>
+          
+          <p style="text-align: center;">
+            <a href="${storeUrl}" class="button">View in Store</a>
+          </p>
+          
+          <p>Thank you for contributing to Edify Engine!</p>
+          
+          <p>Best regards,<br>The Edify Engine Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Send notification to contributor when their item is rejected
+  async sendItemRejectionNotification(itemData) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping item rejection notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    if (!itemData.contributorEmail) {
+      console.log('No contributor email provided - skipping item rejection notification');
+      return { success: false, reason: 'no_contributor_email' };
+    }
+
+    const msg = {
+      to: itemData.contributorEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: `❌ Item Review Update - ${itemData.itemTitle}`,
+      html: this.getItemRejectionNotificationTemplate(itemData)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Item rejection notification sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send item rejection notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  getItemRejectionNotificationTemplate(itemData) {
+    const contributorUrl = process.env.CLIENT_URL || 'https://edifyengine.com';
+    const contributeUrl = `${contributorUrl}/contribute`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Item Review Update</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin: -40px -40px 30px -40px;
+            text-align: center;
+          }
+          .item-box {
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+          }
+          .item-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ef4444;
+            margin-bottom: 10px;
+          }
+          .reason-box {
+            background: #fff7ed;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .button {
+            display: inline-block;
+            background: #42677D;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #42677D;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Item Review Update</h1>
+          </div>
+          
+          <p>Hi ${itemData.contributorName || 'there'},</p>
+          
+          <p>We've reviewed your item submission, and unfortunately, it doesn't meet our current quality standards or guidelines.</p>
+          
+          <div class="item-box">
+            <div class="item-title">${itemData.itemTitle}</div>
+            ${itemData.itemType ? `<p><strong>Type:</strong> ${itemData.itemType}</p>` : ''}
+          </div>
+          
+          ${itemData.rejectionReason ? `
+          <div class="reason-box">
+            <p><strong>Reason:</strong></p>
+            <p>${itemData.rejectionReason}</p>
+          </div>
+          ` : ''}
+          
+          <div class="info-box">
+            <p><strong>What can you do?</strong></p>
+            <ul>
+              <li>Review the feedback provided above</li>
+              <li>Make necessary improvements to your item</li>
+              <li>Resubmit your item for review</li>
+              <li>If you have questions, please contact our support team</li>
+            </ul>
+          </div>
+          
+          <p style="text-align: center;">
+            <a href="${contributeUrl}" class="button">Upload New Item</a>
+          </p>
+          
+          <p>We appreciate your contribution and encourage you to submit again!</p>
+          
+          <p>Best regards,<br>The Edify Engine Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }
 
 export default new EmailService();

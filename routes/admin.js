@@ -1443,7 +1443,7 @@ router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
       });
     }
     
-    const item = await Item.findById(itemId);
+    const item = await Item.findById(itemId).populate('creator.id', 'email firstName lastName');
     if (!item) {
       return res.status(404).json({ message: 'Item not found' });
     }
@@ -1469,6 +1469,41 @@ router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
       });
     } catch (logError) {
       console.error('Error logging status change:', logError);
+    }
+    
+    // Send email notification to contributor if status is approved or rejected
+    if ((status === 'approved' || status === 'rejected') && item.creator && item.creator.id) {
+      try {
+        const creator = item.creator.id;
+        const contributorEmail = creator.email;
+        const contributorName = creator.firstName && creator.lastName 
+          ? `${creator.firstName} ${creator.lastName}` 
+          : creator.email;
+        
+        if (status === 'approved') {
+          await emailService.sendItemApprovalNotification({
+            contributorEmail,
+            contributorName,
+            itemTitle: item.title,
+            itemType: item.type,
+            priceUSD: item.priceUSD,
+            itemId: item._id.toString()
+          });
+        } else if (status === 'rejected') {
+          // Note: rejectionReason could be added to the request body if needed
+          await emailService.sendItemRejectionNotification({
+            contributorEmail,
+            contributorName,
+            itemTitle: item.title,
+            itemType: item.type,
+            rejectionReason: req.body.rejectionReason || 'Your item does not meet our current quality standards or guidelines.',
+            itemId: item._id.toString()
+          });
+        }
+      } catch (emailError) {
+        console.error('Error sending item status notification email:', emailError);
+        // Don't fail the request if email fails
+      }
     }
     
     res.json({ 

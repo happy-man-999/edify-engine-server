@@ -18,7 +18,10 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // Get minimum withdrawal amount from settings
     const settings = await Settings.getSettings();
-    const MIN_WITHDRAWAL_AMOUNT_SOL = settings.requiredWithdrawAmount || 0.33333;
+    // Ensure requiredWithdrawAmount exists, use default if not set, and ensure it's a number
+    const MIN_WITHDRAWAL_AMOUNT_SOL = (settings.requiredWithdrawAmount !== undefined && settings.requiredWithdrawAmount !== null) 
+      ? parseFloat(settings.requiredWithdrawAmount) || 0.33333
+      : 0.33333;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid withdrawal amount' });

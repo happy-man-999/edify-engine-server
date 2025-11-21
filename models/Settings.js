@@ -63,6 +63,12 @@ settingsSchema.statics.getSettings = async function() {
       stripeSecretKey: ''
     });
     await settings.save();
+  } else {
+    // Ensure requiredWithdrawAmount exists on existing documents
+    if (settings.requiredWithdrawAmount === undefined || settings.requiredWithdrawAmount === null) {
+      settings.requiredWithdrawAmount = 0.33333;
+      await settings.save();
+    }
   }
   return settings;
 };
