@@ -4,6 +4,7 @@ import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import Item from '../models/Item.js';
+import Settings from '../models/Settings.js';
 import { requireAdmin } from '../middleware/admin.js';
 import solanaPaymentService from '../services/solanaPaymentService.js';
 import emailService from '../services/emailService.js';
@@ -14,8 +15,10 @@ const router = express.Router();
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const { amount, solanaAddress } = req.body;
-    // Minimum withdrawal amount in SOL
-    const MIN_WITHDRAWAL_AMOUNT_SOL = 0.33333; // Minimum 0.33333 SOL
+    
+    // Get minimum withdrawal amount from settings
+    const settings = await Settings.getSettings();
+    const MIN_WITHDRAWAL_AMOUNT_SOL = settings.requiredWithdrawAmount || 0.33333;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid withdrawal amount' });
@@ -166,51 +169,72 @@ router.get('/', requireAdmin, async (req, res) => {
         ]);
         const totalWithdrawn = totalWithdrawnResult.length > 0 ? totalWithdrawnResult[0].total : 0;
         
-        // Calculate total earned from transactions
+        // Calculate total earned from transactions (all purchases are SOL-only)
         // Find all items created by this user
         const userItems = await Item.find({
           'creator.id': userId
         }).select('_id priceUSD').lean();
         
-        // Keep as ObjectIds for MongoDB queries
         const userItemIds = userItems.map(item => item._id);
-        const userItemIdsMap = new Map(userItems.map(item => [item._id.toString(), item.priceUSD]));
+        const userItemIdsStr = userItemIds.map(id => id.toString());
         
         let totalEarned = 0;
         
         if (userItemIds.length > 0) {
-          // Find all successful transactions for items created by this user
-          // For single item purchases
-          const singleItemTransactions = await Transaction.find({
+          // Get all successful transactions for items created by this user
+          const transactions = await Transaction.find({
             status: 'success',
-            itemType: 'item-purchase',
-            item: { $in: userItemIds }
+            $or: [
+              { item: { $in: userItemIds } },
+              { cartItems: { $in: userItemIds } }
+            ]
           }).lean();
           
           // Calculate earnings from single item purchases
-          // Creator earns 80% of transaction amount
+          // For single item purchases, creator earns 80% of transaction amount (which is in SOL)
+          const singleItemTransactions = transactions.filter(t => 
+            t.itemType === 'item-purchase' && 
+            t.item && 
+            userItemIdsStr.includes(t.item.toString())
+          );
+          
           const singleItemEarnings = singleItemTransactions.reduce((sum, tx) => {
             return sum + (tx.amount * 0.8);
           }, 0);
           
-          // For cart purchases, find transactions that include items created by this user
-          const cartTransactions = await Transaction.find({
-            status: 'success',
-            itemType: 'cart-purchase',
-            cartItems: { $in: userItemIds }
-          }).lean();
-          
           // Calculate earnings from cart purchases
-          // For each cart transaction, find which items belong to this user and calculate 80% of their price
+          // For cart purchases, calculate proportional earnings based on item prices
+          const cartTransactions = transactions.filter(t => 
+            t.itemType === 'cart-purchase' && 
+            t.cartItems && 
+            Array.isArray(t.cartItems) &&
+            t.cartItems.some(itemId => userItemIdsStr.includes(itemId.toString()))
+          );
+          
           let cartEarnings = 0;
           for (const tx of cartTransactions) {
             if (tx.cartItems && Array.isArray(tx.cartItems)) {
-              for (const itemId of tx.cartItems) {
-                const itemIdStr = itemId.toString();
-                if (userItemIdsMap.has(itemIdStr)) {
-                  // Creator earns 80% of the item price
-                  const itemPrice = userItemIdsMap.get(itemIdStr);
-                  cartEarnings += itemPrice * 0.8;
+              const cartItemIds = tx.cartItems.map(id => id.toString());
+              
+              // Find which items in the cart belong to this creator
+              const creatorItemsInCart = userItems.filter(item => 
+                cartItemIds.includes(item._id.toString())
+              );
+              
+              if (creatorItemsInCart.length > 0) {
+                // Get all items in the cart to calculate proportions
+                const allCartItems = await Item.find({ 
+                  _id: { $in: tx.cartItems } 
+                }).select('priceUSD').lean();
+                
+                const totalCartValueUSD = allCartItems.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
+                const creatorItemsValueUSD = creatorItemsInCart.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
+                
+                if (totalCartValueUSD > 0) {
+                  // Calculate proportion of creator's items in the cart
+                  const proportion = creatorItemsValueUSD / totalCartValueUSD;
+                  // transaction.amount is in SOL, creator earns 80% of their proportion
+                  cartEarnings += tx.amount * proportion * 0.8;
                 }
               }
             }

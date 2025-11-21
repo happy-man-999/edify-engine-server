@@ -321,8 +321,8 @@ router.post('/payment-success', async (req, res) => {
       }
     } else if (isCartPurchase) {
       try {
-        // For actual item purchases, use the standard logPurchase method
-        await LogService.logPurchase(txInfo.userId, txInfo.itemId, transaction._id, {
+        // For cart purchases, itemId should be null since it's not a single item
+        await LogService.logPurchase(txInfo.userId, null, transaction._id, {
           itemName: itemNames.join(', ') || 'Cart Items',
           amount: txInfo.amount,
           paymentMethod: 'solana',
@@ -352,69 +352,76 @@ router.post('/payment-success', async (req, res) => {
       }
 
       // Credit 80% to each creator for cart items (in SOL)
+      // Use the actual SOL amount paid (txInfo.amount) and calculate proportional earnings
       if (cartItems && cartItems.length > 0) {
         try {
           const Item = (await import('../models/Item.js')).default;
           const User = (await import('../models/User.js')).default;
-          const solanaPaymentService = (await import('../services/solanaPaymentService.js')).default;
           const items = await Item.find({ _id: { $in: cartItems } }).populate('creator.id');
-          const creatorCredits = {};
-          const creatorItems = {}; // Track items per creator for notifications
           
-          // Calculate total SOL amount per creator
+          // Calculate total cart value in USD
+          const totalCartValueUSD = items.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
+          
+          // Group items by creator and calculate proportional earnings
+          const creatorData = {};
+          
           for (const item of items) {
             if (item.creator && item.creator.id) {
-              // Convert item price from USD to SOL
-              const itemPriceSOL = await solanaPaymentService.convertUsdToSol(item.priceUSD || 0);
-              const creatorEarnings = itemPriceSOL * 0.8;
-              // Extract creator ID - handle both populated objects and ObjectIds
-              // If populated, item.creator.id is a User document with _id property
-              // If not populated, item.creator.id is an ObjectId
               const creatorId = (item.creator.id._id || item.creator.id).toString();
               
-              if (!creatorCredits[creatorId]) {
-                creatorCredits[creatorId] = 0;
-                creatorItems[creatorId] = [];
+              if (!creatorData[creatorId]) {
+                creatorData[creatorId] = {
+                  items: [],
+                  itemsValueUSD: 0
+                };
               }
-              creatorCredits[creatorId] += creatorEarnings;
-              creatorItems[creatorId].push(item);
+              
+              creatorData[creatorId].items.push(item);
+              creatorData[creatorId].itemsValueUSD += (item.priceUSD || 0);
             }
           }
           
-          // Update each creator's balance (in SOL) and send notifications
-          for (const [creatorId, earnings] of Object.entries(creatorCredits)) {
-            await User.findByIdAndUpdate(
-              creatorId,
-              { $inc: { balance: earnings } }
-            );
-            console.log(`Credited ${earnings} SOL to creator ${creatorId} for cart purchase`);
-            
-            // Send notification email to item owner
-            try {
-              const creator = await User.findById(creatorId).select('email firstName lastName');
-              const buyer = await User.findById(txInfo.userId).select('email firstName lastName');
-              if (creator && creator.email && buyer && creatorItems[creatorId] && creatorItems[creatorId].length > 0) {
-                // For cart purchases, notify about all items purchased from this creator
-                const itemsList = creatorItems[creatorId].map(i => i.title).join(', ');
-                await emailService.sendItemOwnerPurchaseNotification({
-                  itemTitle: creatorItems[creatorId].length === 1 
-                    ? creatorItems[creatorId][0].title 
-                    : `${creatorItems[creatorId].length} items from your store`,
-                  itemType: 'cart',
-                  amount: earnings / 0.8, // Total purchase amount (earnings / 0.8)
-                  currency: 'SOL',
-                  earnings: earnings,
-                  paymentMethod: 'Solana',
-                  buyerName: `${buyer.firstName} ${buyer.lastName}`,
-                  buyerEmail: buyer.email,
-                  ownerEmail: creator.email,
-                  transactionId: signature,
-                  itemsList: itemsList
-                });
+          // Calculate and credit earnings for each creator
+          for (const [creatorId, data] of Object.entries(creatorData)) {
+            if (totalCartValueUSD > 0) {
+              // Calculate proportion of creator's items in the cart
+              const proportion = data.itemsValueUSD / totalCartValueUSD;
+              // txInfo.amount is the total SOL paid, creator earns 80% of their proportion
+              const creatorEarnings = txInfo.amount * proportion * 0.8;
+              
+              // Update creator's balance
+              await User.findByIdAndUpdate(
+                creatorId,
+                { $inc: { balance: creatorEarnings } }
+              );
+              console.log(`Credited ${creatorEarnings} SOL to creator ${creatorId} for cart purchase`);
+              
+              // Send notification email to item owner
+              try {
+                const creator = await User.findById(creatorId).select('email firstName lastName');
+                const buyer = await User.findById(txInfo.userId).select('email firstName lastName');
+                if (creator && creator.email && buyer && data.items.length > 0) {
+                  const itemsList = data.items.map(i => i.title).join(', ');
+                  await emailService.sendItemOwnerPurchaseNotification({
+                    itemTitle: data.items.length === 1 
+                      ? data.items[0].title 
+                      : `${data.items.length} items from your store`,
+                    itemType: 'cart',
+                    amount: txInfo.amount * proportion, // Creator's share of total purchase
+                    currency: 'SOL',
+                    earnings: creatorEarnings,
+                    paymentMethod: 'Solana',
+                    buyerName: `${buyer.firstName} ${buyer.lastName}`,
+                    buyerEmail: buyer.email,
+                    ownerEmail: creator.email,
+                    transactionId: signature,
+                    itemsList: itemsList
+                  });
+                }
+              } catch (emailError) {
+                console.error('Error sending item owner purchase notification:', emailError);
+                // Don't fail the transaction if email fails
               }
-            } catch (emailError) {
-              console.error('Error sending item owner purchase notification:', emailError);
-              // Don't fail the transaction if email fails
             }
           }
         } catch (creditError) {

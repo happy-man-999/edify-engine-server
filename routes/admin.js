@@ -40,6 +40,7 @@ router.get('/payment-settings', async (req, res) => {
         isTestMode: settings.isTestMode,
         solanaWalletAddress: settings.solanaWalletAddress,
         stripePublicKey: settings.stripePublicKey,
+        requiredWithdrawAmount: settings.requiredWithdrawAmount,
       }
     });
   } catch (error) {
@@ -1074,7 +1075,8 @@ router.put('/settings', async (req, res) => {
       isTestMode,
       solanaWalletAddress,
       stripePublicKey,
-      stripeSecretKey
+      stripeSecretKey,
+      requiredWithdrawAmount
     } = req.body;
 
     // Validate required fields
@@ -1133,6 +1135,15 @@ router.put('/settings', async (req, res) => {
       });
     }
 
+    // Validate required withdrawal amount
+    if (requiredWithdrawAmount !== undefined) {
+      if (isNaN(requiredWithdrawAmount) || requiredWithdrawAmount < 0) {
+        return res.status(400).json({ 
+          message: 'Required withdrawal amount must be a non-negative number' 
+        });
+      }
+    }
+
     // Get current settings
     const currentSettings = await Settings.getSettings();
     
@@ -1145,7 +1156,8 @@ router.put('/settings', async (req, res) => {
       isTestMode: Boolean(isTestMode),
       solanaWalletAddress: solanaWalletAddress || currentSettings.solanaWalletAddress,
       stripePublicKey: stripePublicKey || currentSettings.stripePublicKey,
-      stripeSecretKey: stripeSecretKey || currentSettings.stripeSecretKey
+      stripeSecretKey: stripeSecretKey || currentSettings.stripeSecretKey,
+      requiredWithdrawAmount: requiredWithdrawAmount !== undefined ? parseFloat(requiredWithdrawAmount) : currentSettings.requiredWithdrawAmount
     };
 
     // Update settings
@@ -1181,6 +1193,9 @@ router.put('/settings', async (req, res) => {
       }
       if (currentSettings.stripeSecretKey !== updatedSettings.stripeSecretKey) {
         changes.stripeSecretKey = { old: currentSettings.stripeSecretKey, new: updatedSettings.stripeSecretKey };
+      }
+      if (currentSettings.requiredWithdrawAmount !== updatedSettings.requiredWithdrawAmount) {
+        changes.requiredWithdrawAmount = { old: currentSettings.requiredWithdrawAmount, new: updatedSettings.requiredWithdrawAmount };
       }
 
       await LogService.logSettingsUpdated(req.user._id, changes);

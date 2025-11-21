@@ -41,6 +41,12 @@ const settingsSchema = new mongoose.Schema({
     type: String,
     required: true,
     default: '' // Will be set from env or admin
+  },
+  // Withdrawal settings
+  requiredWithdrawAmount: {
+    type: Number,
+    required: true,
+    default: 0.33333 // Minimum withdrawal amount in SOL
   }
 }, {
   timestamps: true

@@ -670,10 +670,10 @@ router.get('/contributor/stats', authenticateToken, async (req, res) => {
     // Count items created by this user
     const itemCount = await Item.countDocuments({ 'creator.id': userId });
 
-    // Calculate total earned SOL from transactions
-    // Find all successful transactions where items created by this user were purchased
-    const userItems = await Item.find({ 'creator.id': userId }).select('_id priceUSD');
-    const itemIds = userItems.map(item => item._id.toString());
+    // Calculate total earned SOL from transactions (all purchases are SOL-only)
+    const userItems = await Item.find({ 'creator.id': userId }).select('_id priceUSD').lean();
+    const itemIds = userItems.map(item => item._id);
+    const itemIdsStr = itemIds.map(id => id.toString());
 
     if (itemIds.length === 0) {
       return res.json({
@@ -689,32 +689,35 @@ router.get('/contributor/stats', authenticateToken, async (req, res) => {
         { item: { $in: itemIds } },
         { cartItems: { $in: itemIds } }
       ]
-    }).populate('item', 'priceUSD creator');
+    }).lean();
 
     let totalEarnedSOL = 0;
 
     // Calculate earnings from single item purchases
-    const singleItemTransactions = transactions.filter(t => t.item && itemIds.includes(t.item._id.toString()));
-    for (const transaction of singleItemTransactions) {
-      if (transaction.paymentMethod === 'solana') {
-        // For Solana, amount is already in SOL, so 80% of that
-        totalEarnedSOL += transaction.amount * 0.8;
-      } else {
-        // For Stripe, need to convert USD to SOL (approximate)
-        // This is a simplified calculation - in production you might want to use actual conversion rates
-        const solanaPaymentService = (await import('../services/solanaPaymentService.js')).default;
-        const amountSOL = await solanaPaymentService.convertUsdToSol(transaction.amount);
-        totalEarnedSOL += amountSOL * 0.8;
-      }
-    }
+    // For single item purchases, creator earns 80% of transaction amount (which is in SOL)
+    const singleItemTransactions = transactions.filter(t => 
+      t.itemType === 'item-purchase' && 
+      t.item && 
+      itemIdsStr.includes(t.item.toString())
+    );
+    
+    const singleItemEarnings = singleItemTransactions.reduce((sum, tx) => {
+      return sum + (tx.amount * 0.8);
+    }, 0);
 
     // Calculate earnings from cart purchases
-    const cartTransactions = transactions.filter(t => t.cartItems && t.cartItems.length > 0);
+    // For cart purchases, calculate proportional earnings based on item prices
+    const cartTransactions = transactions.filter(t => 
+      t.itemType === 'cart-purchase' && 
+      t.cartItems && 
+      Array.isArray(t.cartItems) &&
+      t.cartItems.some(itemId => itemIdsStr.includes(itemId.toString()))
+    );
+    
+    let cartEarnings = 0;
     for (const transaction of cartTransactions) {
-      if (transaction.cartItems) {
-        const cartItemIds = Array.isArray(transaction.cartItems) 
-          ? transaction.cartItems.map(id => id.toString())
-          : [];
+      if (transaction.cartItems && Array.isArray(transaction.cartItems)) {
+        const cartItemIds = transaction.cartItems.map(id => id.toString());
         
         // Find which items in the cart belong to this creator
         const creatorItemsInCart = userItems.filter(item => 
@@ -722,34 +725,25 @@ router.get('/contributor/stats', authenticateToken, async (req, res) => {
         );
 
         if (creatorItemsInCart.length > 0) {
-          if (transaction.paymentMethod === 'solana') {
-            // For cart purchases, we need to calculate proportional earnings
-            // Get all items in the cart to calculate proportions
-            const allCartItems = await Item.find({ _id: { $in: cartItemIds } }).select('priceUSD');
-            const totalCartValueUSD = allCartItems.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
-            const creatorItemsValueUSD = creatorItemsInCart.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
-            
-            if (totalCartValueUSD > 0) {
-              const proportion = creatorItemsValueUSD / totalCartValueUSD;
-              // transaction.amount is in SOL for Solana payments
-              totalEarnedSOL += transaction.amount * proportion * 0.8;
-            }
-          } else {
-            // For Stripe cart purchases
-            const solanaPaymentService = (await import('../services/solanaPaymentService.js')).default;
-            const allCartItems = await Item.find({ _id: { $in: cartItemIds } }).select('priceUSD');
-            const totalCartValueUSD = allCartItems.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
-            const creatorItemsValueUSD = creatorItemsInCart.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
-            
-            if (totalCartValueUSD > 0) {
-              const proportion = creatorItemsValueUSD / totalCartValueUSD;
-              const amountSOL = await solanaPaymentService.convertUsdToSol(transaction.amount);
-              totalEarnedSOL += amountSOL * proportion * 0.8;
-            }
+          // Get all items in the cart to calculate proportions
+          const allCartItems = await Item.find({ 
+            _id: { $in: transaction.cartItems } 
+          }).select('priceUSD').lean();
+          
+          const totalCartValueUSD = allCartItems.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
+          const creatorItemsValueUSD = creatorItemsInCart.reduce((sum, item) => sum + (item.priceUSD || 0), 0);
+          
+          if (totalCartValueUSD > 0) {
+            // Calculate proportion of creator's items in the cart
+            const proportion = creatorItemsValueUSD / totalCartValueUSD;
+            // transaction.amount is in SOL, creator earns 80% of their proportion
+            cartEarnings += transaction.amount * proportion * 0.8;
           }
         }
       }
     }
+    
+    totalEarnedSOL = singleItemEarnings + cartEarnings;
 
     res.json({
       itemCount,
