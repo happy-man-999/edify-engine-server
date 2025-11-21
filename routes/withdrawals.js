@@ -2,6 +2,8 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
+import Transaction from '../models/Transaction.js';
+import Item from '../models/Item.js';
 import { requireAdmin } from '../middleware/admin.js';
 import solanaPaymentService from '../services/solanaPaymentService.js';
 import emailService from '../services/emailService.js';
@@ -146,17 +148,91 @@ router.get('/', requireAdmin, async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const withdrawals = await Withdrawal.find(query)
-      .populate('user', 'firstName lastName email')
+      .populate('user', 'firstName lastName email balance')
       .populate('processedBy', 'firstName lastName email')
       .sort({ requestedAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Calculate total earned and total withdrawn for each user
+    const withdrawalsWithStats = await Promise.all(
+      withdrawals.map(async (withdrawal) => {
+        const userId = withdrawal.user._id;
+        
+        // Get total withdrawn amount (sum of all approved withdrawals)
+        const totalWithdrawnResult = await Withdrawal.aggregate([
+          { $match: { user: userId, status: 'approved' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawn = totalWithdrawnResult.length > 0 ? totalWithdrawnResult[0].total : 0;
+        
+        // Calculate total earned from transactions
+        // Find all items created by this user
+        const userItems = await Item.find({
+          'creator.id': userId
+        }).select('_id priceUSD').lean();
+        
+        // Keep as ObjectIds for MongoDB queries
+        const userItemIds = userItems.map(item => item._id);
+        const userItemIdsMap = new Map(userItems.map(item => [item._id.toString(), item.priceUSD]));
+        
+        let totalEarned = 0;
+        
+        if (userItemIds.length > 0) {
+          // Find all successful transactions for items created by this user
+          // For single item purchases
+          const singleItemTransactions = await Transaction.find({
+            status: 'success',
+            itemType: 'item-purchase',
+            item: { $in: userItemIds }
+          }).lean();
+          
+          // Calculate earnings from single item purchases
+          // Creator earns 80% of transaction amount
+          const singleItemEarnings = singleItemTransactions.reduce((sum, tx) => {
+            return sum + (tx.amount * 0.8);
+          }, 0);
+          
+          // For cart purchases, find transactions that include items created by this user
+          const cartTransactions = await Transaction.find({
+            status: 'success',
+            itemType: 'cart-purchase',
+            cartItems: { $in: userItemIds }
+          }).lean();
+          
+          // Calculate earnings from cart purchases
+          // For each cart transaction, find which items belong to this user and calculate 80% of their price
+          let cartEarnings = 0;
+          for (const tx of cartTransactions) {
+            if (tx.cartItems && Array.isArray(tx.cartItems)) {
+              for (const itemId of tx.cartItems) {
+                const itemIdStr = itemId.toString();
+                if (userItemIdsMap.has(itemIdStr)) {
+                  // Creator earns 80% of the item price
+                  const itemPrice = userItemIdsMap.get(itemIdStr);
+                  cartEarnings += itemPrice * 0.8;
+                }
+              }
+            }
+          }
+          
+          totalEarned = singleItemEarnings + cartEarnings;
+        }
+        
+        // Convert to plain object and add stats
+        const withdrawalObj = withdrawal.toObject();
+        withdrawalObj.totalEarned = totalEarned;
+        withdrawalObj.totalWithdrawn = totalWithdrawn;
+        
+        return withdrawalObj;
+      })
+    );
+
     const total = await Withdrawal.countDocuments(query);
 
     res.json({
       success: true,
-      withdrawals: withdrawals,
+      withdrawals: withdrawalsWithStats,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
