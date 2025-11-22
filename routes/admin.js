@@ -16,6 +16,7 @@ import emailService from '../services/emailService.js';
 import settingsRefreshService from '../services/settingsRefreshService.js';
 import stripeService from '../services/stripeService.js';
 import DigitalOceanService from '../services/digitalOceanService.js';
+import DigitalOceanSpacesService from '../services/digitalOceanSpacesService.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -1430,6 +1431,36 @@ router.get('/items', requireAdmin, async (req, res) => {
   }
 });
 
+// Helper function to extract file key from Digital Ocean Spaces URL
+function extractFileKey(url) {
+  if (!url) return null;
+  
+  const bucketUrl = process.env.DO_SPACES_ITEMS_BUCKET_URL;
+  
+  // If URL contains the bucket URL, extract the key after the URL
+  if (bucketUrl && url.includes(bucketUrl)) {
+    const urlParts = url.split(`${bucketUrl}/`);
+    return urlParts[1] || null;
+  }
+  
+  // If URL starts with https://, it might be a full URL - try to extract key
+  if (url.startsWith('https://')) {
+    // Extract path after domain
+    try {
+      const urlObj = new URL(url);
+      const path = urlObj.pathname;
+      // Remove leading slash
+      return path.startsWith('/') ? path.substring(1) : path;
+    } catch (e) {
+      // If URL parsing fails, assume it's already a key
+      return url;
+    }
+  }
+  
+  // Assume it's already a key
+  return url;
+}
+
 // Update item status (approve/reject)
 router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
   try {
@@ -1449,6 +1480,132 @@ router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
     }
     
     const oldStatus = item.status;
+    
+    // If rejecting, delete files and remove from database
+    if (status === 'rejected') {
+      // Store item info for logging and email before deletion
+      const itemInfo = {
+        _id: item._id,
+        title: item.title,
+        image: item.image,
+        sceneAssets: item.sceneAssets,
+        downloadAssets: item.downloadAssets,
+        creator: item.creator
+      };
+      
+      // Delete files from Digital Ocean Spaces
+      const filesToDelete = [];
+      
+      // Extract file keys from URLs
+      if (item.image) {
+        const imageKey = extractFileKey(item.image);
+        if (imageKey) filesToDelete.push(imageKey);
+      }
+      
+      if (item.sceneAssets) {
+        const sceneAssetsKey = extractFileKey(item.sceneAssets);
+        if (sceneAssetsKey) filesToDelete.push(sceneAssetsKey);
+      }
+      
+      if (item.downloadAssets) {
+        const downloadAssetsKey = extractFileKey(item.downloadAssets);
+        if (downloadAssetsKey) filesToDelete.push(downloadAssetsKey);
+      }
+      
+      // Delete all files from Digital Ocean Spaces
+      const deleteResults = [];
+      for (const fileKey of filesToDelete) {
+        try {
+          const result = await DigitalOceanSpacesService.deleteFile(fileKey);
+          deleteResults.push({ key: fileKey, success: result.success, error: result.error });
+          if (result.success) {
+            console.log(`Successfully deleted file from Digital Ocean Spaces: ${fileKey}`);
+          } else {
+            console.error(`Failed to delete file from Digital Ocean Spaces: ${fileKey}`, result.error);
+          }
+        } catch (deleteError) {
+          console.error(`Error deleting file ${fileKey} from Digital Ocean Spaces:`, deleteError);
+          deleteResults.push({ key: fileKey, success: false, error: deleteError.message });
+        }
+      }
+      
+      // Log file deletion attempts
+      try {
+        await LogService.logAction({
+          type: 'item_files_deleted',
+          message: `Deleted ${filesToDelete.length} file(s) from Digital Ocean Spaces for rejected item "${item.title}"`,
+          details: {
+            itemId: item._id,
+            itemTitle: item.title,
+            filesDeleted: deleteResults,
+            changedBy: req.user._id
+          },
+          userId: req.user._id,
+          itemId: item._id
+        });
+      } catch (logError) {
+        console.error('Error logging file deletion:', logError);
+      }
+      
+      // Send email notification before deleting the item
+      if (item.creator && item.creator.id) {
+        try {
+          const creator = item.creator.id;
+          const contributorEmail = creator.email;
+          const contributorName = creator.firstName && creator.lastName 
+            ? `${creator.firstName} ${creator.lastName}` 
+            : creator.email;
+          
+          await emailService.sendItemRejectionNotification({
+            contributorEmail,
+            contributorName,
+            itemTitle: item.title,
+            itemType: item.type,
+            rejectionReason: req.body.rejectionReason || 'Your item does not meet our current quality standards or guidelines.',
+            itemId: item._id.toString()
+          });
+        } catch (emailError) {
+          console.error('Error sending item rejection notification email:', emailError);
+          // Don't fail the request if email fails
+        }
+      }
+      
+      // Log the rejection before deletion
+      try {
+        await LogService.logAction({
+          type: 'item_status_changed',
+          message: `Item "${item.title}" rejected and removed from database`,
+          details: {
+            itemId: item._id,
+            itemTitle: item.title,
+            oldStatus,
+            newStatus: status,
+            changedBy: req.user._id,
+            filesDeleted: filesToDelete.length
+          },
+          userId: req.user._id,
+          itemId: item._id
+        });
+      } catch (logError) {
+        console.error('Error logging item rejection:', logError);
+      }
+      
+      // Delete the item from database
+      await Item.findByIdAndDelete(itemId);
+      
+      res.json({ 
+        message: 'Item rejected and removed successfully',
+        item: {
+          _id: itemInfo._id,
+          title: itemInfo.title,
+          status: 'rejected',
+          filesDeleted: filesToDelete.length
+        }
+      });
+      return;
+    }
+    
+    // For non-rejection status changes (approve/unapprove)
     item.status = status;
     await item.save();
     
@@ -1471,8 +1628,8 @@ router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
       console.error('Error logging status change:', logError);
     }
     
-    // Send email notification to contributor if status is approved or rejected
-    if ((status === 'approved' || status === 'rejected') && item.creator && item.creator.id) {
+    // Send email notification to contributor if status is approved
+    if (status === 'approved' && item.creator && item.creator.id) {
       try {
         const creator = item.creator.id;
         const contributorEmail = creator.email;
@@ -1480,28 +1637,16 @@ router.patch('/items/:itemId/status', requireAdmin, async (req, res) => {
           ? `${creator.firstName} ${creator.lastName}` 
           : creator.email;
         
-        if (status === 'approved') {
-          await emailService.sendItemApprovalNotification({
-            contributorEmail,
-            contributorName,
-            itemTitle: item.title,
-            itemType: item.type,
-            priceUSD: item.priceUSD,
-            itemId: item._id.toString()
-          });
-        } else if (status === 'rejected') {
-          // Note: rejectionReason could be added to the request body if needed
-          await emailService.sendItemRejectionNotification({
-            contributorEmail,
-            contributorName,
-            itemTitle: item.title,
-            itemType: item.type,
-            rejectionReason: req.body.rejectionReason || 'Your item does not meet our current quality standards or guidelines.',
-            itemId: item._id.toString()
-          });
-        }
+        await emailService.sendItemApprovalNotification({
+          contributorEmail,
+          contributorName,
+          itemTitle: item.title,
+          itemType: item.type,
+          priceUSD: item.priceUSD,
+          itemId: item._id.toString()
+        });
       } catch (emailError) {
-        console.error('Error sending item status notification email:', emailError);
+        console.error('Error sending item approval notification email:', emailError);
         // Don't fail the request if email fails
       }
     }
