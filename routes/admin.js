@@ -2049,4 +2049,42 @@ router.get('/demo-emails/stats', async (req, res) => {
   }
 });
 
+// Clear all demo emails
+router.delete('/demo-emails', async (req, res) => {
+  try {
+    const deletedCount = await DemoEmail.deleteMany({});
+    
+    // Log the action
+    try {
+      await LogService.logAction({
+        level: 'success',
+        type: 'settings_updated',
+        message: `Admin cleared all demo emails (${deletedCount.deletedCount} deleted)`,
+        details: {
+          action: 'clear_demo_emails',
+          deletedCount: deletedCount.deletedCount
+        },
+        status: 'completed',
+        userId: req.user._id,
+        metadata: {
+          performedBy: 'admin'
+        }
+      });
+    } catch (logError) {
+      console.error('Error logging demo emails clear:', logError);
+    }
+
+    res.json({
+      message: 'All demo emails cleared successfully',
+      deletedCount: deletedCount.deletedCount
+    });
+  } catch (error) {
+    console.error('Error clearing demo emails:', error);
+    res.status(500).json({ 
+      message: 'Failed to clear demo emails',
+      error: error.message 
+    });
+  }
+});
+
 export default router; 
