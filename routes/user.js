@@ -559,6 +559,88 @@ router.get('/snapshots/check-name', authenticateToken, async (req, res) => {
   }
 });
 
+// Get wallet addresses for a droplet (admin only or owner)
+router.get('/droplets/:dropletId/wallets', authenticateToken, async (req, res) => {
+  try {
+    const { dropletId } = req.params;
+    const userId = req.user._id;
+    
+    // Find the droplet
+    const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+    
+    if (!droplet) {
+      return res.status(404).json({ 
+        message: 'Droplet not found' 
+      });
+    }
+    
+    // Check if user is owner or admin
+    if (droplet.user.toString() !== userId.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        message: 'Access denied. Only droplet owner or admin can view wallet addresses.' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      walletAddresses: droplet.walletAddresses || []
+    });
+  } catch (error) {
+    console.error('Error fetching wallet addresses:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch wallet addresses',
+      error: error.message 
+    });
+  }
+});
+
+// Update wallet addresses for a droplet (admin only or owner)
+router.put('/droplets/:dropletId/wallets', authenticateToken, async (req, res) => {
+  try {
+    const { dropletId } = req.params;
+    const { walletAddresses } = req.body;
+    const userId = req.user._id;
+    
+    if (!Array.isArray(walletAddresses)) {
+      return res.status(400).json({ 
+        message: 'walletAddresses must be an array' 
+      });
+    }
+    
+    // Find the droplet
+    const droplet = await Droplet.findOne({ dropletId: parseInt(dropletId) });
+    
+    if (!droplet) {
+      return res.status(404).json({ 
+        message: 'Droplet not found' 
+      });
+    }
+    
+    // Check if user is owner or admin
+    if (droplet.user.toString() !== userId.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        message: 'Access denied. Only droplet owner or admin can update wallet addresses.' 
+      });
+    }
+    
+    // Update wallet addresses
+    droplet.walletAddresses = walletAddresses.filter(addr => addr && addr.trim().length > 0);
+    await droplet.save();
+    
+    res.json({
+      success: true,
+      message: 'Wallet addresses updated successfully',
+      walletAddresses: droplet.walletAddresses
+    });
+  } catch (error) {
+    console.error('Error updating wallet addresses:', error);
+    res.status(500).json({ 
+      message: 'Failed to update wallet addresses',
+      error: error.message 
+    });
+  }
+});
+
 // Get user's snapshots
 router.get('/snapshots', authenticateToken, async (req, res) => {
   try {

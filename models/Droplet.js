@@ -72,7 +72,11 @@ const dropletSchema = new mongoose.Schema({
   customDomain: {
     type: String,
     required: false
-  }
+  },
+  walletAddresses: [{
+    type: String,
+    required: false
+  }]
 }, {
   timestamps: true
 });
