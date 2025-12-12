@@ -4,6 +4,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from '../models/User.js';
 import SignupProgress from '../models/SignupProgress.js';
 import EmailVerification from '../models/EmailVerification.js';
+import Droplet from '../models/Droplet.js';
 import { generateToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 import LogService from '../services/logService.js';
@@ -389,6 +390,58 @@ router.put('/profile', authenticateToken, async (req, res) => {
 // Sign out (client-side token removal)
 router.post('/signout', (req, res) => {
   res.json({ message: 'Signed out successfully' });
+});
+
+// Check if wallet address is authorized for a droplet (public endpoint for hyperfy server)
+router.post('/check-wallet-authorization', async (req, res) => {
+  try {
+    const { hostname, walletAddress } = req.body;
+
+    // Validate input
+    if (!hostname || !walletAddress) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'hostname and walletAddress are required' 
+      });
+    }
+
+    // Find droplet matching the hostname
+    // First try custom domain
+    let droplet = await Droplet.findOne({ customDomain: hostname });
+    
+    // If not found, try subdomain
+    if (!droplet) {
+      const subdomain = hostname.replace('.edifyengine.com', '');
+      droplet = await Droplet.findOne({ subdomain: subdomain });
+    }
+
+    if (!droplet) {
+      return res.json({
+        success: true,
+        authorized: false,
+        message: 'Droplet not found for this hostname'
+      });
+    }
+
+    // Check if wallet address is in the authorized list (case-insensitive)
+    const walletAddresses = droplet.walletAddresses || [];
+    const isAuthorized = walletAddresses.some(
+      addr => addr && addr.toLowerCase().trim() === walletAddress.toLowerCase().trim()
+    );
+
+    res.json({
+      success: true,
+      authorized: isAuthorized,
+      dropletId: droplet.dropletId
+    });
+  } catch (error) {
+    console.error('Error checking wallet authorization:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to check wallet authorization',
+      error: error.message 
+    });
+  }
 });
 
 export default router; 

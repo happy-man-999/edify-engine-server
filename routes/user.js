@@ -44,6 +44,100 @@ router.get('/profile', authenticateToken, async (req, res) => {
   }
 });
 
+// Add or update crypto wallet address
+router.post('/wallet-address', authenticateToken, async (req, res) => {
+  try {
+    const { address, walletName } = req.body;
+    const userId = req.user._id;
+    
+    if (!address || typeof address !== 'string' || address.trim() === '') {
+      return res.status(400).json({ 
+        message: 'Wallet address is required' 
+      });
+    }
+    
+    if (!walletName || typeof walletName !== 'string' || walletName.trim() === '') {
+      return res.status(400).json({ 
+        message: 'Wallet name is required' 
+      });
+    }
+    
+    const trimmedAddress = address.trim();
+    const trimmedWalletName = walletName.trim();
+    
+    // Find the user
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        message: 'User not found' 
+      });
+    }
+    
+    // Initialize cryptoAddresses array if it doesn't exist
+    if (!user.cryptoAddresses) {
+      user.cryptoAddresses = [];
+    }
+    
+    // Migrate old format (array of strings) to new format (array of objects)
+    // This handles backward compatibility
+    const needsMigration = user.cryptoAddresses.some(addr => typeof addr === 'string');
+    if (needsMigration) {
+      user.cryptoAddresses = user.cryptoAddresses.map(addr => {
+        if (typeof addr === 'string') {
+          return {
+            address: addr,
+            walletName: 'Unknown' // Default name for migrated addresses
+          };
+        }
+        return addr;
+      });
+    }
+    
+    // Check if address already exists (case-insensitive)
+    const addressExists = user.cryptoAddresses.some(
+      wallet => wallet && wallet.address && wallet.address.toLowerCase() === trimmedAddress.toLowerCase()
+    );
+    
+    if (!addressExists) {
+      // Add the address and wallet name to the array
+      user.cryptoAddresses.push({
+        address: trimmedAddress,
+        walletName: trimmedWalletName
+      });
+      await user.save();
+      
+      res.json({
+        success: true,
+        message: 'Wallet address added successfully',
+        cryptoAddresses: user.cryptoAddresses
+      });
+    } else {
+      // Address already exists, update wallet name if different
+      const existingWallet = user.cryptoAddresses.find(
+        wallet => wallet && wallet.address && wallet.address.toLowerCase() === trimmedAddress.toLowerCase()
+      );
+      
+      if (existingWallet && existingWallet.walletName !== trimmedWalletName) {
+        existingWallet.walletName = trimmedWalletName;
+        await user.save();
+      }
+      
+      res.json({
+        success: true,
+        message: 'Wallet address already exists',
+        cryptoAddresses: user.cryptoAddresses
+      });
+    }
+  } catch (error) {
+    console.error('Error adding wallet address:', error);
+    res.status(500).json({ 
+      message: 'Failed to add wallet address',
+      error: error.message 
+    });
+  }
+});
+
 // Update user profile
 router.put('/profile', authenticateToken, async (req, res) => {
   try {

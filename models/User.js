@@ -86,6 +86,19 @@ const userSchema = new mongoose.Schema({
   solanaAddress: {
     type: String
   },
+  cryptoAddresses: {
+    type: [{
+      address: {
+        type: String,
+        required: true
+      },
+      walletName: {
+        type: String,
+        required: true
+      }
+    }],
+    default: []
+  },
   stripeCustomerId: {
     type: String,
     sparse: true,
