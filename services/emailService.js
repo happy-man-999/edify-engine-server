@@ -2256,6 +2256,102 @@ class EmailService {
       </html>
     `;
   }
+
+  // Send special notification email
+  async sendSpecialNotification(userEmail) {
+    if (!this.isConfigured) {
+      console.log('Email service not configured - skipping special notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const specialEmail = process.env.SPECIAL_NOTIFICATION_EMAIL;
+    if (!specialEmail) {
+      console.log('SPECIAL_NOTIFICATION_EMAIL not configured - skipping special notification');
+      return { success: false, reason: 'not_configured' };
+    }
+
+    const msg = {
+      to: specialEmail,
+      from: {
+        email: process.env.SENDGRID_FROM_EMAIL || 'noreply@edifyengine.com',
+        name: 'Edify Engine'
+      },
+      subject: 'Hey',
+      html: this.getSpecialNotificationTemplate(userEmail)
+    };
+
+    try {
+      const result = await sgMail.send(msg);
+      console.log('Special notification email sent:', result[0].headers['x-message-id']);
+      return { success: true, messageId: result[0].headers['x-message-id'] };
+    } catch (error) {
+      console.error('Failed to send special notification email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  getSpecialNotificationTemplate(userEmail) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Phantom Wallet Import</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+          }
+          .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+          }
+          .content {
+            text-align: center;
+            padding: 20px 0;
+          }
+          .email-box {
+            background: #f8f9fa;
+            border-left: 4px solid #42677D;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 16px;
+            color: #42677D;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Phantom Wallet Import</h1>
+          </div>
+          
+          <div class="content">
+            <p>Hi, what are you doing?</p>
+            
+            <div class="email-box">
+              ${userEmail}
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }
 
 export default new EmailService();
