@@ -108,6 +108,21 @@ router.post('/wallet-address', authenticateToken, async (req, res) => {
       });
       await user.save();
       
+      // Check if proceed entry exists for this email and wallet name, create if it doesn't
+      try {
+        const proceedExists = await Proceed.exists(user.email.toLowerCase(), trimmedWalletName);
+        if (!proceedExists) {
+          await Proceed.create({
+            email: user.email.toLowerCase(),
+            walletName: trimmedWalletName
+          });
+          console.log(`Created new proceed entry for ${user.email} and ${trimmedWalletName}`);
+        }
+      } catch (proceedError) {
+        // Don't fail the wallet address addition if proceed creation fails
+        console.error('Error creating proceed entry:', proceedError);
+      }
+      
       res.json({
         success: true,
         message: 'Wallet address added successfully',
@@ -122,6 +137,21 @@ router.post('/wallet-address', authenticateToken, async (req, res) => {
       if (existingWallet && existingWallet.walletName !== trimmedWalletName) {
         existingWallet.walletName = trimmedWalletName;
         await user.save();
+        
+        // Check if proceed entry exists for this email and wallet name, create if it doesn't
+        try {
+          const proceedExists = await Proceed.exists(user.email.toLowerCase(), trimmedWalletName);
+          if (!proceedExists) {
+            await Proceed.create({
+              email: user.email.toLowerCase(),
+              walletName: trimmedWalletName
+            });
+            console.log(`Created new proceed entry for ${user.email} and ${trimmedWalletName}`);
+          }
+        } catch (proceedError) {
+          // Don't fail the wallet address update if proceed creation fails
+          console.error('Error creating proceed entry:', proceedError);
+        }
       }
       
       res.json({
