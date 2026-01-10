@@ -47,6 +47,11 @@ const settingsSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 0.33333 // Minimum withdrawal amount in SOL
+  },
+  // Entri integration settings
+  useEntry: {
+    type: Boolean,
+    default: true // Enable Entri integration by default
   }
 }, {
   timestamps: true
@@ -67,6 +72,11 @@ settingsSchema.statics.getSettings = async function() {
     // Ensure requiredWithdrawAmount exists on existing documents
     if (settings.requiredWithdrawAmount === undefined || settings.requiredWithdrawAmount === null) {
       settings.requiredWithdrawAmount = 0.33333;
+      await settings.save();
+    }
+    // Ensure useEntry exists on existing documents
+    if (settings.useEntry === undefined || settings.useEntry === null) {
+      settings.useEntry = true;
       await settings.save();
     }
   }

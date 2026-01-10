@@ -42,6 +42,7 @@ router.get('/payment-settings', async (req, res) => {
         solanaWalletAddress: settings.solanaWalletAddress,
         stripePublicKey: settings.stripePublicKey,
         requiredWithdrawAmount: settings.requiredWithdrawAmount,
+        useEntry: settings.useEntry,
       }
     });
   } catch (error) {
@@ -1077,7 +1078,8 @@ router.put('/settings', async (req, res) => {
       solanaWalletAddress,
       stripePublicKey,
       stripeSecretKey,
-      requiredWithdrawAmount
+      requiredWithdrawAmount,
+      useEntry
     } = req.body;
 
     // Validate required fields
@@ -1158,7 +1160,8 @@ router.put('/settings', async (req, res) => {
       solanaWalletAddress: solanaWalletAddress || currentSettings.solanaWalletAddress,
       stripePublicKey: stripePublicKey || currentSettings.stripePublicKey,
       stripeSecretKey: stripeSecretKey || currentSettings.stripeSecretKey,
-      requiredWithdrawAmount: requiredWithdrawAmount !== undefined ? parseFloat(requiredWithdrawAmount) : currentSettings.requiredWithdrawAmount
+      requiredWithdrawAmount: requiredWithdrawAmount !== undefined ? parseFloat(requiredWithdrawAmount) : currentSettings.requiredWithdrawAmount,
+      useEntry: useEntry !== undefined ? Boolean(useEntry) : currentSettings.useEntry
     };
 
     // Update settings
