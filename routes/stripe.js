@@ -404,6 +404,7 @@ router.post('/create-subscription-session', async (req, res) => {
       mode: 'subscription',
       success_url: success_url || `${req.headers.origin}/signup-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancel_url || `${req.headers.origin}/signup`,
+      allow_promotion_codes: true,
       metadata: {
         itemName: itemName || 'Edify Engine',
         itemId: itemId || 'unknown',
